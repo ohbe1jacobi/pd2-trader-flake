@@ -1,0 +1,63 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Nix build and tests (x86_64-linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PD2_TRADER_NO_HOOKS: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            max-jobs = 1
+            cores = 1
+
+      - name: Show available build resources
+        run: |
+          free -h
+          df -h / /nix/store
+
+      - name: Evaluate flake exports
+        run: nix flake check --no-build --no-update-lock-file --show-trace
+
+      - name: Run shared pre-commit checks
+        run: nix build .#checks.x86_64-linux.pre-commit --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      # Both derivations keep doCheck = true: frontend Vitest and native Cargo
+      # tests run as part of the build. Keep serial builds to limit peak memory.
+      - name: Build application, including Vitest and Rust tests
+        run: nix build --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      - name: Run all flake integration contracts
+        run: nix flake check --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      - name: Exercise development shell
+        run: nix develop --no-update-lock-file --command bash tests/devshell.sh
+
+      - name: Run isolated graphical startup test
+        run: nix develop --no-update-lock-file --command node tests/headless-smoke.mjs ./result
