@@ -14,7 +14,7 @@ These apply to every installation method below:
 - **Build cost:** packages are built from source, and the first build can take substantial time, disk space, and memory. Rust compilation is serial by default; see [build resource limits](#build-parallelism-and-resource-limits) before increasing concurrency.
 - **Git flakes omit untracked files.** If your configuration or checkout is a Git repository, track newly created or imported files before evaluating it. Add only intended files, never secrets or ignored private files.
 - **One instance:** close any running Trader before launching another or relaunching with changed settings. Every method uses the upstream application ID and its existing settings/login storage.
-- **Updates** follow this packaging repository's pinned upstream version and dependencies (the `main` branch when installed from GitHub), not arbitrary upstream application releases. Use Nix to update, not the in-app updater.
+- **Updates** follow this packaging repository's pinned upstream version and dependencies (the `main` branch when installed from GitHub), not arbitrary upstream application releases. Both modules disable automatic in-app updates by default through the saved setting; notifications and manual update actions remain available. Plain package/profile installs do not manage this preference. Use Nix to update, not the in-app updater.
 - **Uninstalling** never deletes saved settings/login data or the game.
 
 ## Install on NixOS
@@ -139,7 +139,7 @@ Then, with `inputs` in scope:
 }
 ```
 
-This enables login startup and the default home-relative game path. `homeManagerModules.pd2-trader` is an alias for the same module. It works with standalone Home Manager (including on other distributions, with a working systemd graphical user session) and inside a Home Manager configuration managed by NixOS.
+This enables login startup and the default home-relative game path, and disables automatic in-app updates. `homeManagerModules.pd2-trader` is an alias for the same module. It works with standalone Home Manager (including on other distributions, with a working systemd graphical user session) and inside a Home Manager configuration managed by NixOS.
 
 ### Shared behavior of both modules
 
@@ -208,6 +208,7 @@ Under `programs.pd2-trader` for Home Manager, or `programs.pd2-trader.users.<use
 | --- | --- | --- |
 | `enable` | `false` in Home Manager; `true` for listed NixOS entries | Install the configured package and manage session integration. |
 | `autostart` | `true` | Start Trader at graphical login. Disable for manual launch only. |
+| `autoUpdateEnabled` | `false` | Merge the automatic-update preference before each launch. `null` leaves the saved GUI preference unmanaged; notifications and manual updates remain available. |
 | `d2dir` / `diablo2Directory` | `~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II` | Installation directory, as a quoted string; `d2dir` is an alias. Set `null` to leave the saved GUI setting unmanaged. |
 | `package` | Source package built with the consuming configuration's `pkgs` | Override the Trader package. On NixOS, global `programs.pd2-trader.package` sets the default for all users. |
 | `kde.PD2StartWindowed` | `false` | Start the matched game without fullscreen or either maximization axis, using **Apply Initially**. Later manual fullscreen toggles remain possible. |
@@ -238,9 +239,15 @@ The directory must be the **actual Diablo II installation**, the parent of `Proj
 
 A leading `~/` is expanded at launch against the current user's home. Absolute strings are also supported. Other relative paths, `~otheruser`, and shell-variable/command expansion are not supported. The default therefore works for different usernames and home locations without evaluating another user's home during a build.
 
-The module-installed launcher merges only `diablo2Directory` into `com.pd2-trader.app/settings.json` before executing Trader. Home Manager uses its `xdg.configHome`; NixOS resolves `$XDG_CONFIG_HOME` or `$HOME/.config` at runtime. Tokens, hotkeys, and unrelated settings remain mutable and are preserved. New/replaced JSON is written atomically with private permissions. Malformed, non-object, or symlinked settings files are refused instead of overwritten. No mutable settings or tokens enter the Nix store.
+The module-installed launcher merges the managed `diablo2Directory` and `autoUpdateEnabled` values into `com.pd2-trader.app/settings.json` before executing Trader. Home Manager uses its `xdg.configHome`; NixOS resolves `$XDG_CONFIG_HOME` or `$HOME/.config` at runtime. Tokens, hotkeys, and unrelated settings remain mutable and are preserved. New/replaced JSON is written atomically with private permissions. Malformed, non-object, or symlinked settings files are refused instead of overwritten. No mutable settings or tokens enter the Nix store.
 
 A GUI directory change is overridden at the next configured launch. Setting `d2dir = null` stops managing the value without clearing the last saved path. Settings are not rewritten during system/Home Manager activation.
+
+### Automatic updates
+
+Both modules default to `autoUpdateEnabled = false`, using upstream's existing preference rather than patching application source. It is reapplied at each configured launch, including when `d2dir = null`. Set `autoUpdateEnabled = null` to leave the GUI preference unmanaged without clearing it, or `true` to opt into upstream's automatic updates. A GUI change persists only until the next configured launch while the option is managed.
+
+This disables automatic downloading/installing/restarting, not update checks, notifications, or manual update actions. Continue updating through Nix. Plain `nix run` and profile installations do not merge settings; disable automatic updates in Trader's GUI yourself or use a module. Changing this option requires no frontend or Rust recompilation.
 
 ### KDE rules and cleanup
 

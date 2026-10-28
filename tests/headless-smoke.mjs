@@ -16,6 +16,10 @@ const start = (command, args, options = {}) => {
   return child;
 };
 try {
+  const busConfig = process.env.PD2_TRADER_DBUS_SESSION_CONFIG;
+  if (!busConfig || !existsSync(busConfig)) {
+    throw new Error('Missing Nix D-Bus session configuration; run this test through nix develop');
+  }
   const displayFd = openSync(join(state, 'display'), 'w');
   const xvfbLog = openSync(join(state, 'xvfb.log'), 'w');
   const xvfb = start('Xvfb', ['-displayfd', '3', '-screen', '0', '1280x800x24', '-nolisten', 'tcp'], {
@@ -43,7 +47,7 @@ try {
   };
   for (const key of ['WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'APPIMAGE_DEBUG_EXEC', 'LD_PRELOAD', 'LD_LIBRARY_PATH']) delete env[key];
   const appLog = openSync(join(state, 'app.log'), 'w');
-  const app = start('dbus-run-session', ['--', join(pkg, 'bin/pd2-trader')], {
+  const app = start('dbus-run-session', [`--config-file=${busConfig}`, '--', join(pkg, 'bin/pd2-trader')], {
     env, stdio: ['ignore', appLog, appLog],
   });
   closeSync(appLog);

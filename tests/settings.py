@@ -47,6 +47,25 @@ with tempfile.TemporaryDirectory() as tmp:
     settings.write_text(json.dumps(expected))
     assert run('relative/Diablo II').returncode != 0
     assert json.loads(settings.read_text()) == expected
+    # The updater can be managed independently without touching the game path.
+    def update(value):
+        return subprocess.run([sys.executable, helper, '--config', str(settings),
+                               '--auto-update-enabled', value], capture_output=True, text=True)
+
+    result = update('false')
+    assert result.returncode == 0, result.stderr
+    expected['autoUpdateEnabled'] = False
+    assert json.loads(settings.read_text()) == expected
+    before = (settings.read_bytes(), settings.stat().st_mtime_ns)
+    assert update('false').returncode == 0
+    assert (settings.read_bytes(), settings.stat().st_mtime_ns) == before
+    assert update('true').returncode == 0
+    expected['autoUpdateEnabled'] = True
+    assert json.loads(settings.read_text()) == expected
+    assert run().returncode == 0
+    assert json.loads(settings.read_text()) == expected
+    assert update('invalid').returncode != 0
+    assert json.loads(settings.read_text()) == expected
     settings.unlink()
     target = pathlib.Path(tmp) / 'declarative.json'
     target.write_text(json.dumps(original))

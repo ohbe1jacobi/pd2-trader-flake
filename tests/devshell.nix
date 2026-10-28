@@ -9,6 +9,7 @@ pkgs.runCommandCC "pd2-trader-devshell-contract"
       nativeBuildInputs
       buildInputs
       GDK_BACKEND
+      PD2_TRADER_DBUS_SESSION_CONFIG
       GIO_EXTRA_MODULES
       GST_PLUGIN_SYSTEM_PATH_1_0
       RUSTFLAGS

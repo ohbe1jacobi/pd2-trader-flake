@@ -23,12 +23,14 @@ let
   enabled = evaluate {
     enable = true;
     diablo2Directory = null;
+    autoUpdateEnabled = null;
     kde.PD2StartWindowed = true;
     kde.traderoverlay = true;
   };
   manual = evaluate {
     enable = true;
     autostart = false;
+    autoUpdateEnabled = true;
   };
   configured = evaluate {
     enable = true;
@@ -54,6 +56,9 @@ let
   };
   rulesScript = builtins.head custom.systemd.user.services.pd2-trader-kde-rules.Service.ExecStart;
 in
+assert defaults.programs.pd2-trader.autoUpdateEnabled == false;
+assert manual.programs.pd2-trader.autoUpdateEnabled;
+assert enabled.programs.pd2-trader.autoUpdateEnabled == null;
 assert !defaults.programs.pd2-trader.kde.PD2StartWindowed;
 assert !defaults.programs.pd2-trader.kde.traderoverlay;
 assert enabled.programs.pd2-trader.kde.PD2StartWindowed;

@@ -17,6 +17,12 @@ done
 cz version >/dev/null
 git flow version >/dev/null
 
+# The private smoke-test bus must not depend on /etc/dbus-1/session.conf.
+test -r "${PD2_TRADER_DBUS_SESSION_CONFIG:?Missing Nix session bus configuration}"
+dbus-run-session --config-file="$PD2_TRADER_DBUS_SESSION_CONFIG" -- \
+	dbus-send --session --print-reply --dest=org.freedesktop.DBus \
+	/org/freedesktop/DBus org.freedesktop.DBus.ListNames >/dev/null
+
 python "$tests/settings.py" "$modules/settings.py"
 python "$tests/source-contract.py" "$tests/source-contract.sh"
 python "$tests/kde-rules.py" "$modules/kde-rules.py" \

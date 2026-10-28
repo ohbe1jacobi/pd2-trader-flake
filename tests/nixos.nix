@@ -35,6 +35,7 @@ let
       other = {
         autostart = false;
         diablo2Directory = null;
+        autoUpdateEnabled = null;
       };
       retired.enable = false;
     };
@@ -43,6 +44,7 @@ let
     enable = true;
     inherit package;
     users.alice.autostart = false;
+    users.alice.autoUpdateEnabled = true;
   };
   bothAuto = evaluate {
     enable = true;
@@ -95,6 +97,9 @@ assert assertionsPass manual;
 assert assertionsPass empty;
 assert assertionsPass cleanup;
 assert assertionsPass bothAuto;
+assert bothAuto.programs.pd2-trader.users.alice.autoUpdateEnabled == false;
+assert manual.programs.pd2-trader.users.alice.autoUpdateEnabled;
+assert enabled.programs.pd2-trader.users.other.autoUpdateEnabled == null;
 assert !bothAuto.programs.pd2-trader.users.alice.kde.PD2StartWindowed;
 assert !bothAuto.programs.pd2-trader.users.alice.kde.traderoverlay;
 assert enabled.programs.pd2-trader.users.alice.kde.PD2StartWindowed;

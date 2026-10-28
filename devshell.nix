@@ -56,6 +56,8 @@ pkgs.mkShell {
 
   # Support local native builds without leaking library overrides to browsers.
   GDK_BACKEND = "x11";
+  # dbus-run-session otherwise looks for host /etc configuration on CI.
+  PD2_TRADER_DBUS_SESSION_CONFIG = "${pkgs.dbus}/share/dbus-1/session.conf";
   GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
   GST_PLUGIN_SYSTEM_PATH_1_0 = package.mediaPluginPath;
   RUSTFLAGS = "-C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ]}";

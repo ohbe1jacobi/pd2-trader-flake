@@ -7,6 +7,15 @@
 }:
 let
   bool = value: if value then "true" else "false";
+  settingsArgs =
+    lib.optionals (cfg.diablo2Directory != null) [
+      "--diablo2-directory"
+      cfg.diablo2Directory
+    ]
+    ++ lib.optionals (cfg.autoUpdateEnabled != null) [
+      "--auto-update-enabled"
+      (bool cfg.autoUpdateEnabled)
+    ];
   configHomeSetup =
     if configHome == null then
       ''
@@ -22,13 +31,13 @@ let
     export XDG_CONFIG_HOME="$configHome"
     ${pkgs.python3}/bin/python ${./settings.py} \
       --config "$configHome/com.pd2-trader.app/settings.json" \
-      --diablo2-directory ${lib.escapeShellArg cfg.diablo2Directory}
+      ${lib.escapeShellArgs settingsArgs}
     exec ${cfg.package}/bin/pd2-trader "$@"
   '';
 in
 {
   package =
-    if cfg.diablo2Directory == null then
+    if settingsArgs == [ ] then
       cfg.package
     else
       pkgs.symlinkJoin {

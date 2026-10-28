@@ -17,6 +17,16 @@
     default = true;
     description = "Start PD2 Trader with the graphical session using a systemd user service.";
   };
+  autoUpdateEnabled = lib.mkOption {
+    type = lib.types.nullOr lib.types.bool;
+    default = false;
+    description = ''
+      Merge autoUpdateEnabled into the mutable Trader settings before each launch.
+      Defaults to false so Nix manages application updates. Update notifications
+      and manual update actions remain available. Null leaves the saved GUI
+      preference unmanaged without erasing it. No upstream source patch is used.
+    '';
+  };
   diablo2Directory = lib.mkOption {
     type = lib.types.nullOr (
       lib.types.addCheck lib.types.str (value: lib.hasPrefix "/" value || lib.hasPrefix "~/" value)
@@ -28,7 +38,7 @@
       of ProjectD2), not the Wine prefix. Accepts an absolute path or a leading
       ~/ expanded against the launching user's home. Use a quoted string,
       never a Nix path literal: the game must not be copied into the Nix store.
-      When set, the installed launcher merges only diablo2Directory into the
+      When set, the installed launcher merges diablo2Directory into the
       mutable Trader settings before each launch. Null leaves the GUI setting
       unmanaged and does not erase its last value. Exit Trader before relaunching
       with a changed value. No game files are modified or imported.
