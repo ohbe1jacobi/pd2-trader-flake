@@ -16,6 +16,35 @@ These apply to every installation method below:
 - **Updates** follow this packaging repository's pinned upstream version and dependencies (the `main` branch when installed from GitHub), not arbitrary upstream application releases. Both modules disable automatic in-app updates by default through the saved setting; notifications and manual update actions remain available. Plain package/profile installs do not manage this preference. Use Nix to update, not the in-app updater.
 - **Uninstalling** never deletes saved settings/login data or the game.
 
+## TL;DR install
+
+Add the input to your flake (with flakes already enabled):
+
+```nix
+inputs.pd2-trader.url = "github:ohbe1jacobi/pd2-trader-flake/main";
+inputs.pd2-trader.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+Then, with `inputs` in scope, add this to **either** your NixOS or your Home Manager configuration:
+
+```nix
+{
+  # NixOS: installs for every user on the machine.
+  imports = [ inputs.pd2-trader.nixosModules.default ];
+  # Home Manager: installs for one user.
+  # imports = [ inputs.pd2-trader.homeManagerModules.default ];
+
+  programs.pd2-trader.enable = true;
+  programs.pd2-trader.d2dir = "/path/to/prefix/drive_c/Program Files (x86)/Diablo II";
+}
+```
+
+`d2dir` is the parent of the `ProjectD2` folder; it contains `Diablo II.exe`.
+
+Rebuild, then launch `pd2-trader` or log in again; Trader starts with your graphical session. Use only one of the two modules. See [Options](#options) for autostart, updates, and KDE rules.
+
+Detailed, step-by-step instructions for [NixOS](#install-on-nixos), [Home Manager](#home-manager), and [other Linux distributions](#install-with-nix-on-another-linux-distribution) follow below.
+
 ## Install on NixOS
 
 Use the NixOS module for a declarative installation; **Home Manager is not required**. Keep your current desktop, graphics drivers, user accounts, hardware configuration, and `system.stateVersion`.
@@ -68,11 +97,9 @@ If you do not have a system flake yet, create `/etc/nixos/flake.nix` using this 
         {
           programs.pd2-trader = {
             enable = true;
-            users.YOUR_USER = {
-              # Actual Diablo II directory: the parent of ProjectD2.
-              d2dir = "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
-              autostart = true;
-            };
+            # Actual Diablo II directory: the parent of ProjectD2.
+            d2dir = "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
+            autostart = true;
           };
         }
       ];
@@ -81,9 +108,9 @@ If you do not have a system flake yet, create `/etc/nixos/flake.nix` using this 
 }
 ```
 
-Replace `YOUR_HOST` with your host's configuration name and `YOUR_USER` with an **existing normal NixOS user**; the module does not create that account. Adjust `d2dir` to your actual installation, or set it to `null` to leave the GUI setting unmanaged. See [Options](#options) for autostart and the optional KDE rules.
+Replace `YOUR_HOST` with your host's configuration name. Adjust `d2dir` to your actual installation, or set it to `null` to leave the GUI setting unmanaged. See [Options](#options) for autostart and the optional KDE rules.
 
-Only listed, enabled users receive the package. `nixosModules.pd2-trader` is an alias for `nixosModules.default`.
+The NixOS module installs Trader **system-wide**: every user gets the package and the same settings, and with `autostart` it starts at every graphical login. For a single user, or different settings per user, use the [Home Manager module](#home-manager) instead. `nixosModules.pd2-trader` is an alias for `nixosModules.default`.
 
 > **Tip:** the example imports the module directly from the `outputs` argument, so it needs no `specialArgs`. To use `inputs.pd2-trader` inside a separate `configuration.nix` instead, bind `outputs = inputs@{ nixpkgs, ... }: ...`, pass `specialArgs = { inherit inputs; };` to `nixosSystem`, and accept `inputs` in that module's arguments.
 
@@ -118,7 +145,7 @@ nixos-rebuild build --flake .#YOUR_HOST --max-jobs 1 --cores 1
 sudo nixos-rebuild switch --flake .#YOUR_HOST --max-jobs 1 --cores 1
 ```
 
-To remove the installation, first disable the configured user while leaving the module imported, rebuild, and run the user's cleanup service as described in [KDE rules and cleanup](#kde-rules-and-cleanup). Then remove the module/input and rebuild.
+To remove the installation, first retire any KDE rules as described in [KDE rules and cleanup](#kde-rules-and-cleanup). Then remove the module/input and rebuild.
 
 ## Home Manager
 
@@ -142,9 +169,9 @@ This enables login startup and the default home-relative game path, and disables
 
 ### Shared behavior of both modules
 
-Both the NixOS and Home Manager adapters use **systemd user services**, not root application services. Startup is attached to `graphical-session.target`; services stop with the graphical session. Trader restarts on failure, not after a normal quit. NixOS units restrict execution to configured accounts and inherit the graphical session's desktop-helper PATH.
+Both the NixOS and Home Manager adapters use **systemd user services**, not root application services. Startup is attached to `graphical-session.target`; services stop with the graphical session. Trader restarts on failure, not after a normal quit. NixOS units apply to every user and inherit the graphical session's desktop-helper PATH.
 
-**Choose one adapter per user**; do not have both own the same service names. The NixOS module has no Home Manager dependency; the flake's Home Manager input is used for module evaluation tests.
+**Choose one adapter**; do not enable both on the same machine. Both own the same service names, and a user's Home Manager units shadow the system-wide ones. The NixOS module has no Home Manager dependency; the flake's Home Manager input is used for module evaluation tests.
 
 ## Install with Nix on another Linux distribution
 
@@ -201,22 +228,22 @@ Use the name reported by `nix profile list` if it differs. For a local-checkout 
 
 ## Options
 
-Under `programs.pd2-trader` for Home Manager, or `programs.pd2-trader.users.<username>` for NixOS:
+Under `programs.pd2-trader` in both modules:
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `enable` | `false` in Home Manager; `true` for listed NixOS entries | Install the configured package and manage session integration. |
+| `enable` | `false` | Install the configured package and manage session integration. |
 | `autostart` | `true` | Start Trader at graphical login. Disable for manual launch only. |
 | `autoUpdateEnabled` | `false` | Merge the automatic-update preference before each launch. `null` leaves the saved GUI preference unmanaged; notifications and manual updates remain available. |
 | `d2dir` / `diablo2Directory` | `~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II` | Installation directory, as a quoted string; `d2dir` is an alias. Set `null` to leave the saved GUI setting unmanaged. |
-| `package` | Source package built with the consuming configuration's `pkgs` | Override the Trader package. On NixOS, global `programs.pd2-trader.package` sets the default for all users. |
+| `package` | Source package built with the consuming configuration's `pkgs` | Override the Trader package. |
 | `kde.PD2StartWindowed` | `false` | Start the matched game without fullscreen or either maximization axis, using **Apply Initially**. Later manual fullscreen toggles remain possible. |
 | `kde.traderoverlay` | `false` | Force the matched Trader window to **Layer = On-screen display**, skipping the taskbar and window switcher. Does not change the window type. |
 | `kde.gameWindowTitle` | `Diablo II` | Exact game title to match. |
 | `kde.gameWindowClass` | `steam_app_default` | Exact Wine/X11 game class; override for a different Wine runner. |
 | `kde.traderWindowTitle` | `PD2Trader` | Exact Trader window title to match. |
 
-Example in either per-user namespace:
+Example in either module:
 
 ```nix
 {
@@ -255,7 +282,7 @@ The helper uses KDE's `kreadconfig6`/`kwriteconfig6` tools to merge stable, modu
 No Wine, Lutris, D2GL, resolution, or cursor settings are modified. Window rules address startup desktop state and stacking, not every cursor-capture, click-through, Gamescope, or overlay-input issue. The game is not autostarted. Disable old manually created duplicate rules yourself; the module never deletes them. Close the Window Rules editor while applying changes so it does not overwrite the new state with an old snapshot.
 
 - **Home Manager:** turn a flag off and switch to retire that owned rule. To remove all integration, set `enable = false` and switch once while the module remains imported; then remove the import.
-- **NixOS:** KDE changes apply at the next graphical login, or when the user restarts the rules service. Before removing an entry or disabling the global module, keep it configured with its per-user `enable = false`, rebuild, and let that user's helper run once. Removing an entry immediately removes the cleanup dispatcher. Root activation deliberately does not modify home directories.
+- **NixOS:** KDE changes apply at the next graphical login, or when the user restarts the rules service. Before disabling or removing the module, set both `kde` flags to `false` and rebuild while keeping `enable = true`. Then let the helper run once for each affected user (log in again or restart the rules service). Disabling the module removes the helper, so it can no longer clean up. Root activation deliberately does not modify home directories.
 
 After your normal configuration switch, use these commands in the desktop user's session:
 
@@ -266,7 +293,7 @@ systemctl --user status pd2-trader.service pd2-trader-kde-rules.service
 journalctl --user -u pd2-trader.service -b
 ```
 
-When `autostart = false`, launch the installed `pd2-trader` command or desktop entry instead. On NixOS, the shared unit may still exist for another configured user, but its user conditions exclude manual-start entries.
+When `autostart = false`, launch the installed `pd2-trader` command or desktop entry instead.
 
 ## Build parallelism and resource limits
 
@@ -283,7 +310,7 @@ programs.pd2-trader.package =
   };
 ```
 
-On NixOS this sets the default for all configured users; use `programs.pd2-trader.users.<username>.package` to override only one user. If you build the package with your own `pkgs`, apply the same `.override` to that package. It can be combined with the [`source` override](#use-a-separate-upstream-source-checkout).
+If you build the package with your own `pkgs`, apply the same `.override` to that package. It can be combined with the [`source` override](#use-a-separate-upstream-source-checkout).
 
 For a one-off parallel build from this repository, without editing the flake:
 
