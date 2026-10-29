@@ -24,6 +24,7 @@ pkgs.mkShell {
       shfmt
       git
       gitflow
+      gh
       commitizen
       jq
       pre-commit

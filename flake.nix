@@ -17,6 +17,7 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       package = pkgs.callPackage ./package.nix { };
+      automationTools = import ./automation-tools.nix { inherit pkgs; };
       preCommitCheck = git-hooks.lib.${system}.run (
         (import ./git-hooks.nix { inherit pkgs; })
         // {
@@ -30,6 +31,9 @@
         pd2-trader = package;
         default = package;
         frontend = package.frontend;
+        # Maintainer tooling uses the same locked package set, with nix-update
+        # pinned independently to the revision verified for the native target.
+        nix-update = automationTools.nix-update;
       };
       apps.${system} = {
         pd2-trader = {
@@ -47,6 +51,21 @@
       nixosModules.default = self.nixosModules.pd2-trader;
       checks.${system} = {
         pre-commit = preCommitCheck;
+
+        upstream-release =
+          pkgs.runCommand "pd2-trader-upstream-release-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
+            ''
+              mkdir -p .github/scripts tests
+              cp ${./.github/scripts}/*.mjs .github/scripts/
+              cp ${./tests/upstream-release.mjs} tests/upstream-release.mjs
+              cp ${./tests/prepare-update.mjs} tests/prepare-update.mjs
+              cp ${./tests/update-integration.mjs} tests/update-integration.mjs
+              cp ${./tests/release-lifecycle.mjs} tests/release-lifecycle.mjs
+              cp ${./tests/release-scenarios.mjs} tests/release-scenarios.mjs
+              node --test tests/upstream-release.mjs tests/prepare-update.mjs \
+                tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs
+              touch "$out"
+            '';
 
         devshell = import ./tests/devshell.nix {
           inherit pkgs;

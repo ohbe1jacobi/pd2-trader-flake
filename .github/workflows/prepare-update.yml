@@ -1,0 +1,137 @@
+name: Prepare upstream update
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Validated upstream application version (without app-v)
+        required: true
+        type: string
+      issue:
+        description: Existing open tracking issue number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize generation per version; only the short write job shares the
+# promotion lock. Canceled pending runs are safe to rerun (README recovery).
+concurrency:
+  group: pd2-prepare-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      base: ${{ steps.plan.outputs.base }}
+      generate: ${{ steps.plan.outputs.generate }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - id: plan
+        name: Validate upstream, issue and integration base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_VERSION: ${{ inputs.version }}
+          UPDATE_ISSUE: ${{ inputs.issue }}
+        run: node .github/scripts/update-integration.mjs --plan
+
+  generate:
+    needs: plan
+    if: needs.plan.outputs.generate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    outputs:
+      native: ${{ steps.generate.outputs.native }}
+      readme: ${{ steps.generate.outputs.readme }}
+    env:
+      PD2_TRADER_NO_HOOKS: "1"
+    steps:
+      - name: Check out trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+      - name: Check out exact integration base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.base }}
+          path: work
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            max-jobs = 1
+            cores = 1
+      - name: Show available hash-generation resources
+        run: |
+          free -h
+          df -h / /nix/store
+      - id: generate
+        name: Refresh and verify application hashes without write credentials
+        env:
+          UPDATE_VERSION: ${{ inputs.version }}
+        run: |
+          tool=$(nix build ./control#nix-update --no-link --print-out-paths --no-update-lock-file --max-jobs 1 --cores 1)
+          export NIX_UPDATE_BIN="$tool/bin/nix-update"
+          cd work
+          node ../control/.github/scripts/prepare-update.mjs
+
+  integrate:
+    needs: [plan, generate]
+    concurrency:
+      group: pd2-release-state
+      cancel-in-progress: false
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.generate.result == 'success' || needs.generate.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Check out trusted automation only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      # Treat generation output as untrusted text: validate the exact permitted
+      # substitutions, construct a Git tree via gh, and never execute it here.
+      - name: Verify update payload, create or reuse integration PR, dispatch full CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_VERSION: ${{ inputs.version }}
+          UPDATE_ISSUE: ${{ inputs.issue }}
+          UPDATE_BASE: ${{ needs.plan.outputs.base }}
+          UPDATE_NATIVE: ${{ needs.generate.outputs.native }}
+          UPDATE_README: ${{ needs.generate.outputs.readme }}
+        run: node .github/scripts/update-integration.mjs

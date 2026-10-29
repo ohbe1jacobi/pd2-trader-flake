@@ -48,6 +48,13 @@
       stages = [ "pre-commit" ];
     };
     commitizen.enable = true;
+    update-automation = {
+      enable = true;
+      name = "Offline upstream-update and release contracts";
+      entry = "${pkgs.nodejs}/bin/node --test tests/upstream-release.mjs tests/prepare-update.mjs tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs";
+      files = "^(\\.github/(scripts|workflows)/|tests/(upstream-release|prepare-update|update-integration|release-lifecycle|release-scenarios)\\.mjs$|automation-tools\\.nix$)";
+      pass_filenames = false;
+    };
     flake-check = {
       enable = true;
       name = "Nix flake checks (including application build and tests)";
