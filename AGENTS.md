@@ -49,6 +49,7 @@ This guidance was checked against nixpkgs revision `6b8fc0c3aa1ace4900fc66d35f59
 - Do not replace the full `phases` list. When overriding a phase, preserve its corresponding pre/post hooks; prefer targeted hooks when sufficient.
 - Preserve the separate npm frontend build and Rust frontend staging. The Rust preBuild hook runs from the source root; `cargoRoot` and `buildAndTestSubdir` identify the Cargo subdirectory and are complementary.
 - Preserve GTK/GIO wrapping, the fallback desktop-helper PATH, GStreamer discovery, and the executable RPATH for the dynamically loaded Ayatana tray library. Do not restore AppImage runtimes, host `/usr/lib` dependencies, or global `LD_LIBRARY_PATH` / `LD_PRELOAD` workarounds.
+- The NixOS module installs system-wide with shared settings; per-user installs and settings belong in the Home Manager module. Do not reintroduce per-user selection in `modules/nixos.nix`.
 - Keep support claims limited to tested platforms. The current exported package targets `x86_64-linux` and uses X11/XWayland; do not claim macOS, ARM, pure Wayland, or cross-compilation support without evidence.
 
 ## Sources, purity, and reproducibility
@@ -102,6 +103,37 @@ Git-based flakes omit untracked files. A raw `path:.` reference bypasses Git fil
 When relevant to a future nixpkgs integration, connect package contracts through `passthru.tests` so nixpkgs review/update CI can discover them; do not claim that flake checks already provide that interface.
 
 Before reporting completion, state which checks actually ran, whether a native source rebuild occurred, and any failures/resource limits. Do not claim unit tests, complete game/OAuth/audio integration, all-platform support, or reproducibility based solely on evaluation, cached outputs, or GUI startup. Update tests for changed behavior and keep public usage guidance accurate.
+
+## Version tags and GitHub releases
+
+Use upstream application versions to identify packaging milestones. Follow these formats:
+
+- Upstream-version update commit: `build: update PD2 Trader to <version>`.
+- Annotated Git tag: `v<version>` (for example, `v0.10.9`).
+- Tag annotation/message: `PD2 Trader <version>`.
+- Optional GitHub Release title: `PD2 Trader <version>`.
+- Release notes baseline: `Nix packaging for upstream PD2 Trader <version>.` Add packaging changes and verified check results when useful; do not imply untested integration works.
+
+Tags are sufficient for version history; a GitHub Release is optional and does not require uploaded binary assets. GitHub supplies source archives for the tag. Do not manufacture an artifact solely to publish a release.
+
+Select the exact committed packaging revision for the version being tagged. Tags do not include uncommitted changes: when preserving the previous upstream version before committing an update, tag the previous-version commit, not the updated working tree. Do not move or overwrite an existing published version tag without explicit authorization.
+
+Command template (replace the version and full commit SHA before use):
+
+```bash
+version="0.10.9"
+commit="<full-commit-sha>"
+git show --stat "$commit"
+git tag -a "v$version" "$commit" -m "PD2 Trader $version"
+git push origin "v$version"
+
+# Optional: publish release notes for the already-pushed tag, without assets.
+gh release create "v$version" --verify-tag \
+  --title "PD2 Trader $version" \
+  --notes "Nix packaging for upstream PD2 Trader $version."
+```
+
+Documenting or generating these commands does not authorize executing them. Do not stage, commit, create tags, push, or publish releases unless the user explicitly asks for that action.
 
 ## Repository hygiene and eventual upstream contributions
 
