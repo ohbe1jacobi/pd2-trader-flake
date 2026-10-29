@@ -4,7 +4,7 @@ set -euo pipefail
 tests=${1:-tests}
 modules=${2:-modules}
 for tool in python python3 ruff node npm nix nixfmt nixd statix deadnix shellcheck shfmt git jq \
-	pre-commit cz git-flow actionlint \
+	pre-commit cz git-flow gh actionlint \
 	pkg-config cc cargo rustc rustfmt cargo-clippy rust-analyzer \
 	kreadconfig6 kwriteconfig6 qdbus gst-inspect-1.0 Xvfb xwininfo \
 	dbus-run-session readelf patchelf desktop-file-validate; do

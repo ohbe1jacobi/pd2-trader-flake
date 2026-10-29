@@ -1,0 +1,54 @@
+name: Check upstream release
+
+on:
+  schedule:
+    # Off the hour to avoid the busiest scheduled-run window (UTC).
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Read-only discovery; no issue creation or preparation dispatch
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.ref == 'refs/heads/main'
+    name: Detect and hand off a newer stable release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Test release checker without network or writes
+        run: node --test tests/upstream-release.mjs
+
+      - name: Check upstream and open an update issue if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=()
+          if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
+          node .github/scripts/check-upstream.mjs "${args[@]}"
