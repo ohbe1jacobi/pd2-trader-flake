@@ -1,6 +1,6 @@
 # PD2 Trader for Nix
 
-Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade), the trading companion for Project Diablo 2. Builds the pinned upstream **0.10.7** release from TypeScript/React and Rust source, rather than wrapping an AppImage.
+Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade), the trading companion for Project Diablo 2. Builds the pinned upstream **0.10.9** release from TypeScript/React and Rust source, rather than wrapping an AppImage.
 
 Includes Home Manager and standalone NixOS modules for graphical-login startup, a configurable Diablo II directory, and KDE window-rule workarounds.
 
@@ -12,7 +12,6 @@ These apply to every installation method below:
 - **Game:** install Diablo II/Project Diablo 2 and Wine/Lutris separately. This package does not include, install, or configure the game.
 - **Flakes:** the modern `nix-command` and `flakes` features must be enabled (shown per method below).
 - **Build cost:** packages are built from source, and the first build can take substantial time, disk space, and memory. Rust compilation is serial by default; see [build resource limits](#build-parallelism-and-resource-limits) before increasing concurrency.
-- **Git flakes omit untracked files.** If your configuration or checkout is a Git repository, track newly created or imported files before evaluating it. Add only intended files, never secrets or ignored private files.
 - **One instance:** close any running Trader before launching another or relaunching with changed settings. Every method uses the upstream application ID and its existing settings/login storage.
 - **Updates** follow this packaging repository's pinned upstream version and dependencies (the `main` branch when installed from GitHub), not arbitrary upstream application releases. Both modules disable automatic in-app updates by default through the saved setting; notifications and manual update actions remain available. Plain package/profile installs do not manage this preference. Use Nix to update, not the in-app updater.
 - **Uninstalling** never deletes saved settings/login data or the game.
