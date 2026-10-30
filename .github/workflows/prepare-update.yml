@@ -101,6 +101,8 @@ jobs:
 
   integrate:
     needs: [plan, generate]
+    outputs:
+      commit: ${{ steps.integrate.outputs.commit }}
     concurrency:
       group: pd2-release-state
       cancel-in-progress: false
@@ -127,6 +129,7 @@ jobs:
       # Treat generation output as untrusted text: validate the exact permitted
       # substitutions, construct a Git tree via gh, and never execute it here.
       - name: Verify update payload, create or reuse release PR into main, dispatch full CI
+        id: integrate
         env:
           GH_TOKEN: ${{ github.token }}
           UPDATE_VERSION: ${{ inputs.version }}
@@ -135,3 +138,32 @@ jobs:
           UPDATE_NATIVE: ${{ needs.generate.outputs.native }}
           UPDATE_README: ${{ needs.generate.outputs.readme }}
         run: node .github/scripts/update-integration.mjs
+
+  cache:
+    needs: integrate
+    if: >-
+      always() && needs.integrate.result == 'success' && !cancelled() &&
+      github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # Match the exact-head mirror's bounded queue/build allowance. This job is
+    # outside the short publication lock and never executes candidate sources.
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Check out trusted cache orchestration only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Wait for exact-head CI and explicitly dispatch the isolated cache publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_HEAD: ${{ needs.integrate.outputs.commit }}
+          CACHE_BRANCH: release/${{ inputs.version }}
+        run: node .github/scripts/cache-generated.mjs --dispatch-cache

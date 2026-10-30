@@ -74,6 +74,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const result = process.argv.includes('--plan') ? await planUpdate(input) : await finishUpdate({ ...input, base: process.env.UPDATE_BASE, native: process.env.UPDATE_NATIVE, readme: process.env.UPDATE_README });
     if (process.argv.includes('--plan') && process.env.GITHUB_OUTPUT) {
       await appendFile(process.env.GITHUB_OUTPUT, `base=${result.base}\ngenerate=${result.generate}\n`);
+    } else if (process.env.GITHUB_OUTPUT) {
+      await appendFile(process.env.GITHUB_OUTPUT, `commit=${result.commit}\n`);
     }
     console.log(JSON.stringify(result, null, 2));
   } catch (error) { console.error(error.message); process.exitCode = 1; }

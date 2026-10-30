@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import test from 'node:test';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -12,6 +13,26 @@ const event = () => ({ action: 'opened', sender: { login: 'github-actions[bot]',
   base: { ref: 'develop', repo: { full_name: repository } },
   head: { ref: 'feature/update-pd2-trader-0.10.10', sha, repo: { full_name: repository } },
 } });
+
+test('Nix cache check declares local module dependencies and literal contract file reads', () => {
+  const check = read('flake.nix').split('        cache-ci =')[1].split('        upstream-release =')[0];
+  const inputs = new Set([...check.matchAll(/\$\{\.\/([^}]+)\}/g)].map(match => match[1]));
+  const pending = ['tests/cache-ci.mjs'];
+  const visited = new Set();
+  while (pending.length) {
+    const path = pending.pop();
+    if (visited.has(path)) continue;
+    visited.add(path);
+    assert.ok(inputs.has(path), `cache-ci Nix check must stage imported module: ${path}`);
+    const imports = read(path).matchAll(/\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*\(\s*['"](\.[^'"]+)['"]/g);
+    for (const match of imports) {
+      pending.push(posix.normalize(posix.join(posix.dirname(path), match[1] ?? match[2])));
+    }
+  }
+  for (const [, path] of read('tests/cache-ci.mjs').matchAll(/\bread\(['"]([^'"]+)['"]\)/g)) {
+    assert.ok(inputs.has(path), `cache-ci Nix check must stage contract file: ${path}`);
+  }
+});
 
 test('only automation-marked same-repo bot events mirror explicit dispatch; humans and forks build', async () => {
   const { automationHead } = await gate();
@@ -124,7 +145,7 @@ test('cache artifact runtime updates preserve exact-run transfer and extraction 
     'artifact-ids: ${{ steps.verify.outputs.artifact }}',
     'github-token: ${{ github.token }}',
     'repository: ${{ github.repository }}',
-    'run-id: ${{ github.event.workflow_run.id }}',
+    'run-id: ${{ steps.verify.outputs.run_id }}',
     'path: ${{ runner.temp }}/generated-cache-artifact',
     'merge-multiple: true',
   ]) assert.ok(authenticated.includes(input), `authenticated download must retain ${input}`);
@@ -159,7 +180,7 @@ test('generated cache eligibility accepts only the literal update transform and 
 });
 
 test('generated-cache authority independently authenticates run, main ancestry, full tree, and artifact', async () => {
-  const { verifyGeneratedRun } = await import('../.github/scripts/cache-generated.mjs');
+  const { generatedCacheInput, verifyGeneratedRun } = await import('../.github/scripts/cache-generated.mjs');
   const base = 'b'.repeat(40), treeSha = 'c'.repeat(40);
   const native = 'version = "0.10.9";\n hash = "sha256-' + 'A'.repeat(43) + '=";\n npmDepsHash = "sha256-' + 'A'.repeat(43) + '=";\n cargoHash = "sha256-' + 'A'.repeat(43) + '=";\n';
   const readme = 'pinned upstream **0.10.9** release';
@@ -180,7 +201,8 @@ test('generated-cache authority independently authenticates run, main ancestry, 
     [`/contents/README.md?ref=${sha}`]: { type: 'file', encoding: 'base64', content: Buffer.from(readme.replace('0.10.9','0.10.10')).toString('base64') },
     '/actions/runs/42/artifacts?per_page=100&page=1': { artifacts: [artifact] },
   });
-  const verify = data => verifyGeneratedRun({ repository, runId: 42, attempt: 1, head: sha, request: async path => {
+  const input = generatedCacheInput('workflow_dispatch', { inputs: { run_id: '42', run_attempt: '1', head_sha: sha } });
+  const verify = data => verifyGeneratedRun({ repository, ...input, request: async path => {
     const key = path.replace(`/repos/${repository}`, ''); assert.ok(key in data, key); return structuredClone(data[key]);
   } });
   const valid = await verify(responses()); assert.equal(valid.artifact, '77'); assert.equal(valid.base, base);
@@ -188,11 +210,20 @@ test('generated-cache authority independently authenticates run, main ancestry, 
     d => { d['/actions/runs/42'] = { ...run, event: 'pull_request' }; },
     d => { d['/actions/runs/42'] = { ...run, conclusion: 'failure' }; },
     d => { d['/actions/runs/42'] = { ...run, run_attempt: 2 }; },
+    d => { d['/actions/runs/42'] = { ...run, repository: { full_name: 'attacker/fork' } }; },
+    d => { d['/actions/runs/42'] = { ...run, head_repository: { full_name: 'attacker/fork' } }; },
+    d => { d['/actions/runs/42'] = { ...run, status: 'in_progress' }; },
+    d => { d['/actions/runs/42'] = { ...run, path: '.github/workflows/other.yml' }; },
+    d => { d['/actions/runs/42'] = { ...run, head_sha: base }; },
+    d => { d['/actions/runs/42'] = { ...run, head_branch: 'feature/arbitrary' }; },
     d => { d['/git/ref/heads/main'] = { object: { sha } }; },
     d => { d[`/compare/${base}...main`] = { merge_base_commit: { sha } }; },
     d => { d[`/git/trees/${treeSha}?recursive=1`] = { tree, truncated: true }; },
     d => { d['/actions/runs/42/artifacts?per_page=100&page=1'] = { artifacts: [{ ...artifact, expired: true }] }; },
     d => { d['/actions/runs/42/artifacts?per_page=100&page=1'] = { artifacts: [{ ...artifact, workflow_run: { ...artifact.workflow_run, head_sha: base } }] }; },
+    d => { d['/actions/runs/42/artifacts?per_page=100&page=1'] = { artifacts: [] }; },
+    d => { d['/actions/runs/42/artifacts?per_page=100&page=1'] = { artifacts: [artifact, { ...artifact, id: 78 }] }; },
+    d => { d['/actions/runs/42/artifacts?per_page=100&page=1'] = { artifacts: [{ ...artifact, name: 'trusted-cache-42-2' }] }; },
   ]) { const data = responses(); change(data); await assert.rejects(verify(data)); }
 });
 
@@ -241,6 +272,129 @@ test('dispatch mirror allows a full 190-minute build plus queue delay', async ()
   assert.equal(result.id, 42);
   assert.equal(elapsed, 200 * 60_000);
   assert.match(read('.github/workflows/ci.yml'), /timeout-minutes: \$\{\{ github.event_name == 'pull_request' && 300 \|\| 190 \}\}/);
+});
+
+test('trusted preparation explicitly hands successful exact-head CI to the main cache publisher', async () => {
+  const { dispatchGeneratedCache } = await import('../.github/scripts/cache-generated.mjs');
+  const run = { id: 42, run_attempt: 2, head_sha: sha, head_branch: 'release/0.10.10',
+    event: 'workflow_dispatch', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success' };
+  const writes = [];
+  let polls = 0, waits = 0;
+  const request = async (path, options = {}) => {
+    if (options.method) { writes.push([path, options]); return null; }
+    if (path.includes('/actions/workflows/ci.yml/runs?')) {
+      polls++;
+      return { workflow_runs: [{ ...run, status: polls === 1 ? 'in_progress' : 'completed' }] };
+    }
+    if (path.endsWith('/actions/runs/42')) return run;
+    throw new Error(`Unexpected API request: ${path}`);
+  };
+  await dispatchGeneratedCache({ repository, head: sha, branch: run.head_branch, token: 'test-only-token',
+    request, wait: async () => { waits++; } });
+  assert.equal(waits, 1);
+  assert.deepEqual(writes, [[`/repos/${repository}/actions/workflows/cache-generated.yml/dispatches`, {
+    method: 'POST', body: { ref: 'main', inputs: { run_id: '42', run_attempt: '2', head_sha: sha } },
+  }]]);
+});
+
+test('explicit cache handoff fails closed on unsuccessful CI, timeout, changed attempts and API failures', async () => {
+  const { dispatchGeneratedCache } = await import('../.github/scripts/cache-generated.mjs');
+  const run = { id: 42, run_attempt: 2, head_sha: sha, head_branch: 'release/0.10.10',
+    event: 'workflow_dispatch', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success' };
+  for (const scenario of ['failure', 'cancelled', 'timed_out', 'skipped', 'newer-failure', 'timeout', 'lookup-denied',
+    'run_attempt', 'head_sha', 'head_branch', 'event', 'path', 'status', 'conclusion', 'id', 'readback-denied', 'dispatch-denied']) {
+    const writes = [];
+    const request = async (path, options = {}) => {
+      if (options.method) { writes.push([path, options]); throw new Error('Dispatch denied'); }
+      if (scenario === 'lookup-denied') throw new Error('Lookup denied');
+      if (path.includes('/actions/workflows/ci.yml/runs?')) {
+        const failed = ['failure', 'cancelled', 'timed_out', 'skipped'].includes(scenario);
+        return { workflow_runs: scenario === 'timeout' ? [] : scenario === 'newer-failure'
+          ? [run, { ...run, id: 43, conclusion: 'failure' }]
+          : [{ ...run, conclusion: failed ? scenario : 'success' }] };
+      }
+      if (scenario === 'readback-denied') throw new Error('Readback denied');
+      return { ...run, ...(['run_attempt', 'head_sha', 'head_branch', 'event', 'path', 'status', 'conclusion', 'id'].includes(scenario)
+        ? { [scenario]: 'changed' } : {}) };
+    };
+    await assert.rejects(dispatchGeneratedCache({ repository, head: sha, branch: run.head_branch, token: 'test-only-token',
+      request, attempts: 2, wait: async () => {} }), undefined, scenario);
+    assert.equal(writes.length, scenario === 'dispatch-denied' ? 1 : 0, scenario);
+  }
+});
+
+test('explicit cache handoff retries only the dispatch and rejects malformed lookups before API access', async () => {
+  const { dispatchGeneratedCache } = await import('../.github/scripts/cache-generated.mjs');
+  const run = { id: 42, run_attempt: 2, head_sha: sha, head_branch: 'release/0.10.10',
+    event: 'workflow_dispatch', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success' };
+  let calls = 0, writes = 0;
+  const request = async (path, options = {}) => {
+    calls++;
+    if (options.method) { if (++writes === 1) throw new Error('Temporary dispatch failure'); return null; }
+    if (path.includes('/actions/workflows/ci.yml/runs?')) return { workflow_runs: [run] };
+    return run;
+  };
+  const input = { repository, head: sha, branch: run.head_branch, token: 'test-only-token', request };
+  await assert.rejects(dispatchGeneratedCache(input), /Temporary dispatch failure/);
+  await dispatchGeneratedCache(input);
+  assert.equal(writes, 2, 'retry must dispatch the same completed attempt without rebuilding');
+  calls = 0;
+  for (const change of [{ repository: 'attacker/fork' }, { head: 'bad' }, { branch: 'feature/arbitrary' }, { token: '' }]) {
+    await assert.rejects(dispatchGeneratedCache({ ...input, ...change }));
+  }
+  assert.equal(calls, 0);
+});
+
+test('explicit cache recovery accepts only canonical run identity and preserves workflow-run fallback', async () => {
+  const { generatedCacheInput } = await import('../.github/scripts/cache-generated.mjs');
+  const identity = { runId: '42', attempt: '2', head: sha };
+  assert.deepEqual(generatedCacheInput('workflow_dispatch', { inputs: { run_id: '42', run_attempt: '2', head_sha: sha } }), identity);
+  assert.deepEqual(generatedCacheInput('workflow_run', { workflow_run: { id: 42, run_attempt: 2, head_sha: sha } }), identity);
+  for (const inputs of [{}, { run_id: '4e2', run_attempt: '2', head_sha: sha },
+    { run_id: '42', run_attempt: '0', head_sha: sha }, { run_id: '42', run_attempt: '2', head_sha: 'bad' }]) {
+    assert.throws(() => generatedCacheInput('workflow_dispatch', { inputs }));
+  }
+  assert.throws(() => generatedCacheInput('pull_request', { inputs: { run_id: '42', run_attempt: '2', head_sha: sha } }));
+});
+
+test('cache handoff lives in trusted preparation, not the tokenless application build', () => {
+  const prepare = read('.github/workflows/prepare-update.yml');
+  const publisher = read('.github/workflows/cache-generated.yml');
+  const handoff = prepare.split('  cache:\n')[1];
+  assert.ok(handoff, 'preparation needs an explicit cache handoff job');
+  assert.match(handoff, /needs: integrate/);
+  assert.match(handoff, /timeout-minutes: 300/);
+  assert.match(handoff, /actions: write/);
+  assert.match(handoff, /ref: main/);
+  assert.match(handoff, /github.ref == 'refs\/heads\/main'/);
+  assert.match(handoff, /CACHE_HEAD: \$\{\{ needs.integrate.outputs.commit \}\}/);
+  assert.match(handoff, /cache-generated.mjs --dispatch-cache/);
+  assert.doesNotMatch(handoff, /CACHIX_AUTH_TOKEN|secrets\.|nix build|nix develop/);
+  assert.match(prepare, /commit: \$\{\{ steps.integrate.outputs.commit \}\}/);
+  assert.match(read('.github/scripts/update-integration.mjs'), /commit=\$\{result.commit\}/);
+  assert.match(publisher, /workflow_dispatch:/);
+  for (const input of ['run_id', 'run_attempt', 'head_sha']) {
+    assert.match(publisher, new RegExp(`      ${input}:\\n[\\s\\S]*?required: true`));
+  }
+  assert.match(publisher, /github.ref == 'refs\/heads\/main'/);
+  assert.match(publisher, /run-id: \$\{\{ steps.verify.outputs.run_id \}\}/);
+  const build = read('.github/workflows/ci.yml').split('  cache-upload:')[0];
+  assert.doesNotMatch(build, /actions: write|contents: write|secrets\./);
+});
+
+test('cache handoff runs after successful integration even when retry hash generation was skipped', () => {
+  const handoff = read('.github/workflows/prepare-update.yml').split('  cache:\n')[1];
+  assert.match(handoff, /always\(\) && needs.integrate.result == 'success'/);
+  assert.match(handoff, /!cancelled\(\)/);
+});
+
+test('cache hook covers preparation and integration changes that control the explicit handoff', () => {
+  const hook = read('git-hooks.nix').split('    cache-ci = {')[1];
+  const pattern = new RegExp(JSON.parse(`"${/files = "([^"]+)"/.exec(hook)[1]}"`));
+  for (const path of ['.github/workflows/prepare-update.yml', '.github/scripts/update-integration.mjs',
+    '.github/scripts/cache-generated.mjs', '.github/workflows/cache-generated.yml', 'tests/cache-ci.mjs']) {
+    assert.ok(pattern.test(path), path);
+  }
 });
 
 test('both cache publishers require the protected cachix-publish environment', () => {
