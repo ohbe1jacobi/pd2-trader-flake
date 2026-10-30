@@ -2,6 +2,7 @@ name: Build and test
 
 on:
   push:
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -12,16 +13,20 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Dispatch and PR mirrors never cancel each other. SHA-scoped groups avoid
+  # replacing pending tests for a different head; rerun replaced same-SHA runs.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build-and-test:
     name: Nix build and tests (x86_64-linux)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    # PRs may mirror a queued dispatch; actual dispatch builds remain bounded.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 300 || 190 }}
     env:
       PD2_TRADER_NO_HOOKS: "1"
     defaults:
@@ -43,7 +48,100 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Decide whether to mirror authoritative automation CI
+        id: gate
+        run: node .github/scripts/cache-ci.mjs
+
+      - name: Mirror exact-head automation dispatch (never skipped-green)
+        if: steps.gate.outputs.mirror == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/cache-ci.mjs --mirror
+
       - name: Install Nix
+        if: steps.gate.outputs.mirror != 'true'
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            max-jobs = 1
+            cores = 1
+            extra-substituters = https://pd2-trader-flake.cachix.org
+            extra-trusted-public-keys = pd2-trader-flake.cachix.org-1:rg+7WukdJd8/1+Ky8c7kUHivrvfcmOPVlGUxz4CqLM4=
+
+      - name: Show available build resources
+        if: steps.gate.outputs.mirror != 'true'
+        run: |
+          free -h
+          df -h / /nix/store
+
+      - name: Evaluate flake exports
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix flake check --no-build --no-update-lock-file --show-trace
+
+      - name: Run shared pre-commit checks
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix build .#checks.x86_64-linux.pre-commit --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      # Both derivations retain doCheck = true. Serial builds limit peak memory.
+      - name: Build application, including Vitest and Rust tests
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix build --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      - name: Run all flake integration contracts
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix flake check --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      - name: Exercise development shell
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix develop --no-update-lock-file --command bash tests/devshell.sh
+
+      - name: Run isolated graphical startup test
+        if: steps.gate.outputs.mirror != 'true'
+        # Candidate GUI code remains inside Nix's sandbox, never the runner
+        # which subsequently exports artifacts destined for a signing cache.
+        run: nix build .#checks.x86_64-linux.cache-smoke --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      # Export data without a token. Generated-dispatch artifacts are NOT
+      # authorized for signing until the separate main-only controller proves
+      # their complete source/workflow tree is a narrow literal update.
+      - name: Export application closure without a cache token
+        if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) || (github.event_name == 'workflow_dispatch' && inputs.expected_sha == github.sha && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/feature/update-pd2-trader-'))))
+        run: node .github/scripts/cache-transfer.mjs export
+
+      - name: Transfer trusted closure to a fresh runner
+        if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) || (github.event_name == 'workflow_dispatch' && inputs.expected_sha == github.sha && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/feature/update-pd2-trader-'))))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trusted-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cache-transfer/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  cache-upload:
+    needs: build-and-test
+    # This boundary relies on review/protection of main AND develop. Never
+    # accept PR or arbitrary dispatch artifacts: expected input-addressed store
+    # paths alone do not authenticate NAR contents or prevent cache poisoning.
+    if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    name: Publish trusted application cache
+    # Environment-only token; selected deployment branches must be main/develop.
+    environment: cachix-publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out exact trusted push (not a moving branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install Nix on the isolated uploader
         uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: |
@@ -52,27 +150,26 @@ jobs:
             max-jobs = 1
             cores = 1
 
-      - name: Show available build resources
+      - name: Prepare trusted Cachix tooling before importing any artifacts
         run: |
-          free -h
-          df -h / /nix/store
+          nix build --no-link --no-update-lock-file --print-out-paths --impure --expr \
+            'let f = builtins.getFlake (toString ./.); in (import f.inputs.nixpkgs { system = "x86_64-linux"; }).cachix' \
+            > "$RUNNER_TEMP/cachix-path"
 
-      - name: Evaluate flake exports
-        run: nix flake check --no-build --no-update-lock-file --show-trace
+      - name: Download only this successful push run and attempt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: trusted-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cache-transfer/
 
-      - name: Run shared pre-commit checks
-        run: nix build .#checks.x86_64-linux.pre-commit --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+      - name: Verify provenance and independently evaluated store roots; import data only
+        run: node .github/scripts/cache-transfer.mjs import
 
-      # Both derivations keep doCheck = true: frontend Vitest and native Cargo
-      # tests run as part of the build. Keep serial builds to limit peak memory.
-      - name: Build application, including Vitest and Rust tests
-        run: nix build --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
-
-      - name: Run all flake integration contracts
-        run: nix flake check --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
-
-      - name: Exercise development shell
-        run: nix develop --no-update-lock-file --command bash tests/devshell.sh
-
-      - name: Run isolated graphical startup test
-        run: nix develop --no-update-lock-file --command node tests/headless-smoke.mjs ./result
+      # No builds, hooks, dev-shell entry, or application/artifact execution on
+      # this runner after import. Only the trusted Cachix client gets the token.
+      - name: Upload validated closure to the public cache
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          cachix_path=$(<"$RUNNER_TEMP/cachix-path")
+          "$cachix_path/bin/cachix" push pd2-trader-flake < cache-transfer/validated-roots

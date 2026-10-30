@@ -1,0 +1,77 @@
+name: Cache validated generated update
+
+on:
+  workflow_run:
+    workflows: [Build and test]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cache-generated-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # workflow_run uses the default branch ref, not the candidate release ref.
+    environment: cachix-publish
+    if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success' && (startsWith(github.event.workflow_run.head_branch, 'release/') || startsWith(github.event.workflow_run.head_branch, 'feature/update-pd2-trader-'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # workflow_run privileges NEVER authorize arbitrary PR artifacts. The
+      # controller and tooling always come from protected main, not run.head_sha.
+      - name: Check out trusted controller and main history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Nix on fresh publisher
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            max-jobs = 1
+            cores = 1
+            allow-import-from-derivation = false
+
+      - name: Authenticate run, full tree, literal update, artifact provenance, and expected store roots
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/cache-generated.mjs
+
+      - name: Prepare trusted client before importing any artifacts
+        run: |
+          nix build --no-link --no-update-lock-file --print-out-paths --impure --expr \
+            'let f = builtins.getFlake (toString ./.); in (import f.inputs.nixpkgs { system = "x86_64-linux"; }).cachix' \
+            > "$RUNNER_TEMP/cachix-path"
+
+      - name: Download only the independently authenticated immutable artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ steps.verify.outputs.artifact }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/generated-cache-artifact
+          merge-multiple: true
+
+      - name: Verify manifest against trusted evaluation and import NAR data only
+        run: |
+          node .github/scripts/cache-transfer.mjs import-generated \
+            "$RUNNER_TEMP/generated-cache-context.json" "$RUNNER_TEMP/generated-cache-artifact"
+
+      # No candidate checkout, hooks, build commands, app binaries, or artifact
+      # executables run here. The token is only visible to the trusted client.
+      - name: Publish validated generated closure
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          cachix_path=$(<"$RUNNER_TEMP/cachix-path")
+          "$cachix_path/bin/cachix" push pd2-trader-flake < "$RUNNER_TEMP/generated-cache-artifact/validated-roots"

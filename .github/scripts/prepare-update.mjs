@@ -91,7 +91,7 @@ async function execute(command, args, options) {
   return stdout;
 }
 
-// Invoke the trusted script with cwd set to a clean, disposable develop checkout.
+// Invoke the trusted script with cwd set to a clean, disposable main checkout.
 // No GitHub API, commits, staging, flake updates, or application compilation.
 export async function prepareUpdate({ cwd = process.cwd(), env = process.env, run = execute } = {}) {
   const version = validateVersion(env.UPDATE_VERSION);

@@ -41,4 +41,6 @@ rustc "$scratch/probe.rs" -o "$scratch/rust-probe"
 "$scratch/rust-probe"
 GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 appsink >/dev/null
 GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 autoaudiosink >/dev/null
+GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 fakevideosink >/dev/null
+GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 webvttenc >/dev/null
 printf 'PASS: dev shell Python/KDE tests, JS syntax, native dependencies, C/tray, Rust, and GStreamer\n'

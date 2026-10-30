@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createRequest, readPinnedVersion } from './check-upstream.mjs';
+import { validateGeneratedUpdate } from './prepare-update.mjs';
 
 export function version(value) {
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value ?? '')) throw new Error('Invalid version');
@@ -21,7 +22,7 @@ export function validateRun(eventRun, run, workflowId, repository) {
       run.head_sha !== eventRun.head_sha || run.status !== 'completed' || run.conclusion !== 'success' ||
       run.workflow_id !== workflowId || run.path !== '.github/workflows/ci.yml' ||
       run.head_repository?.full_name !== repository ||
-      !['push', 'workflow_dispatch'].includes(run.event) || !['main', 'develop'].includes(run.head_branch)) {
+      !['push', 'workflow_dispatch'].includes(run.event) || run.head_branch !== 'main') {
     throw new Error('Not a current successful trusted CI run');
   }
   return sha(run.head_sha);
@@ -31,8 +32,7 @@ export function eligiblePR(pr, base, commit, repository) {
   if (matches.length !== 1 || !pr.merged || pr.merge_commit_sha !== commit ||
       pr.base?.ref !== base || pr.base.repo.full_name !== repository || pr.head?.repo?.full_name !== repository) return null;
   const [, v, issue] = matches[0];
-  const prefix = base === 'main' ? 'release/' : 'feature/update-pd2-trader-';
-  if (pr.head.ref !== `${prefix}${v}` || !Number.isSafeInteger(Number(issue))) return null;
+  if (base !== 'main' || pr.head.ref !== `release/${v}` || !Number.isSafeInteger(Number(issue))) return null;
   return { version: v, issue: Number(issue) };
 }
 export async function pages(request, path) {
@@ -67,9 +67,9 @@ export async function ensurePR(request, repository, { head, base, title, body })
   let pr = matching[0];
   if (pr && pr.state !== 'open') throw new Error('Existing PR closed/merged; manual recovery required');
   if (pr && pr.body !== body) {
-    const markers = text => [...(text ?? '').matchAll(/<!-- pd2-update:[^>]+ -->/g)].map(match => match[0]);
+    const markers = text => [...(text ?? '').matchAll(/<!-- pd2-(?:update|main-base):[^>]+ -->/g)].map(match => match[0]).sort();
     const expected = markers(body), actual = markers(pr.body);
-    if (expected.length !== 1 || actual.length !== 1 || expected[0] !== actual[0]) throw new Error('Existing PR metadata differs; manual recovery required');
+    if (!expected.length || JSON.stringify(expected) !== JSON.stringify(actual)) throw new Error('Existing PR metadata differs; manual recovery required');
     // Keep manual notes and the original successful CI evidence on retries.
     body = pr.body;
   }
@@ -82,7 +82,7 @@ export async function dispatchCI(request, repository, branch, commit) {
   const ref = await getRef(request, repository, 'heads', branch);
   if (ref?.object.sha !== commit) throw new Error('Stale branch before CI dispatch');
   // Dispatch at the commit itself: a branch moving between lookup and dispatch
-  // must never cause a green run for a different commit to satisfy promotion.
+  // must never cause a green run for a different commit to satisfy release checks.
   await request(`/repos/${repository}/actions/workflows/ci.yml/dispatches`, {
     method: 'POST', body: { ref: branch, inputs: { expected_sha: commit } },
   });
@@ -100,7 +100,8 @@ export async function validateIssue(request, repository, v, number, allowClosed 
   return issue;
 }
 
-export async function publish({ request, repository, version: v, commit, notes, runCommand }) {
+export async function publish({ request, repository, version: v, commit, notes, runCommand,
+  delay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   version(v); sha(commit);
   const tag = `v${v}`;
   const title = `PD2 Trader ${v}`;
@@ -117,16 +118,32 @@ export async function publish({ request, repository, version: v, commit, notes, 
   if (ref?.object.type !== 'tag') throw new Error('Tag conflict: expected annotated tag');
   const object = await request(`/repos/${repository}/git/tags/${sha(ref.object.sha)}`);
   if (object.object?.type !== 'commit' || object.object.sha !== commit || object.tag !== tag || object.message.trim() !== title) throw new Error('Tag conflict: target/annotation mismatch');
-  const findRelease = async () => (await pages(request, `/repos/${repository}/releases`)).find(release => release.tag_name === tag);
+  const findRelease = async () => {
+    try { return await request(`/repos/${repository}/releases/tags/${tag}`); }
+    catch (error) { if (error.status === 404) return null; throw error; }
+  };
   let release = await findRelease();
   if (!release) {
     const result = runCommand('gh', ['release', 'create', tag, '--repo', repository,
       '--verify-tag', '--title', title, '--notes', notes, '--latest=false'], { encoding: 'utf8' });
     if (result.error || result.status !== 0) throw new Error(`Release publication failed: ${result.error?.message ?? result.stderr}`);
-    release = await findRelease();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await delay(1000 * 2 ** (attempt - 1));
+      try { release = await findRelease(); }
+      catch (error) {
+        if (![429, 500, 502, 503, 504].includes(error.status) || attempt === 2) throw error;
+      }
+      if (release) break;
+    }
   }
-  if (!release || release.name !== title || release.draft || release.prerelease ||
-      !release.body?.startsWith(`Nix packaging for upstream PD2 Trader ${v}.`) || !release.body.includes(commit)) throw new Error('Release readback mismatch');
+  if (!release) throw new Error(`Release readback absent after bounded retries: ${tag}`);
+  const mismatches = [];
+  if (release.tag_name !== tag) mismatches.push('tag_name');
+  if (release.name !== title) mismatches.push('name');
+  if (release.draft !== false) mismatches.push('draft');
+  if (release.prerelease !== false) mismatches.push('prerelease');
+  if (!release.body?.startsWith(`Nix packaging for upstream PD2 Trader ${v}.`) || !release.body.includes(commit)) mismatches.push('body');
+  if (mismatches.length) throw new Error(`Release readback mismatch (${tag}): ${mismatches.join(', ')}`);
   const publishedRef = await getRef(request, repository, 'tags', tag);
   if (publishedRef?.object.type !== 'tag' || publishedRef.object.sha !== ref.object.sha) throw new Error('Published tag target changed');
   return release;
@@ -140,31 +157,63 @@ async function successfulJobs(request, repository, run) {
     if (jobs.length >= batch.total_count) break;
     if (!batch.jobs.length) throw new Error('Incomplete CI jobs');
   }
-  if (jobs.length !== 1 || jobs[0].name !== 'Nix build and tests (x86_64-linux)' || jobs[0].conclusion !== 'success') throw new Error('Missing/mismatched successful CI job');
+  const builds = jobs.filter(job => job.name === 'Nix build and tests (x86_64-linux)');
+  // CI also contains an isolated cache uploader. Its presence must neither
+  // invalidate a real build nor substitute for a missing/failed build job.
+  if (builds.length !== 1 || builds[0].conclusion !== 'success') throw new Error('Missing/mismatched successful CI job');
 }
 
-export async function validateReleaseEvidence({ request, repository, pr, version: v, issue, workflowId }) {
-  const evidence = [...(pr.body ?? '').matchAll(/<!-- pd2-tested-develop:([a-f0-9]{40}):([1-9]\d*):([1-9]\d*) -->/g)];
-  if (evidence.length !== 1) throw new Error('Missing/ambiguous tested develop evidence');
-  const [, commit, id, attempt] = evidence[0];
-  if (!Number.isSafeInteger(Number(id)) || !Number.isSafeInteger(Number(attempt))) throw new Error('Invalid CI evidence identifier');
-  const run = await request(`/repos/${repository}/actions/runs/${id}/attempts/${attempt}`);
-  validateRun({ id: Number(id), run_attempt: Number(attempt), head_sha: commit }, run, workflowId, repository);
-  if (run.head_branch !== 'develop') throw new Error('Release source CI was not on develop');
-  await successfulJobs(request, repository, run);
-  if (await pinnedAt(request, repository, commit) !== v) throw new Error('Release source version mismatch');
-  const related = await pages(request, `/repos/${repository}/commits/${commit}/pulls`);
-  let eligible = 0;
-  for (const item of related) {
-    const sourcePR = await request(`/repos/${repository}/pulls/${item.number}`);
-    const metadata = eligiblePR(sourcePR, 'develop', commit, repository);
-    if (metadata?.version === v && metadata.issue === issue) eligible++;
-  }
-  if (eligible !== 1) throw new Error('Missing/ambiguous integration PR evidence');
-  const ancestry = await request(`/repos/${repository}/compare/${commit}...${sha(pr.head.sha)}`);
-  if (!['ahead', 'identical'].includes(ancestry.status)) throw new Error('Release head does not descend from tested develop');
+export async function sourceAt(request, repository, path, commit) {
+  const file = await request(`/repos/${repository}/contents/${path}?ref=${sha(commit)}`);
+  if (file.encoding !== 'base64' || file.type !== 'file') throw new Error('Invalid source file');
+  return Buffer.from(file.content, 'base64').toString('utf8');
+}
+
+// A frozen update is exactly one commit on a trusted main baseline, with only
+// literal application values and the README version changed. Revalidate on
+// retries and after merge; a branch name or marker alone is not provenance.
+export async function validateUpdateCommit({ request, repository, base, commit, version: v }) {
+  sha(base); sha(commit); version(v);
+  const object = await request(`/repos/${repository}/git/commits/${commit}`);
+  if (object.parents?.length !== 1 || object.parents[0].sha !== base) throw new Error('Frozen branch conflict: update parent differs from main baseline');
+  const parent = await request(`/repos/${repository}/git/commits/${base}`);
+  const trees = await Promise.all([parent, object].map(item => request(`/repos/${repository}/git/trees/${sha(item.tree?.sha)}`)));
+  const normalize = tree => {
+    if (tree.truncated !== false || !Array.isArray(tree.tree)) throw new Error('Incomplete update tree');
+    return tree.tree.map(({ path, mode, type, sha: id }) => {
+      sha(id);
+      if (['native-package.nix', 'README.md'].includes(path)) {
+        if (mode !== '100644' || type !== 'blob') throw new Error('Forbidden update file mode/type');
+        id = '<allowed-content>';
+      }
+      return [path, mode, type, id];
+    }).sort((a, b) => a[0].localeCompare(b[0]));
+  };
+  // Root tree equality also proves every unrelated subtree and flake.lock
+  // stayed byte-for-byte identical, including modes, additions and deletions.
+  if (JSON.stringify(normalize(trees[0])) !== JSON.stringify(normalize(trees[1]))) throw new Error('Forbidden update tree changes');
+  const diff = await request(`/repos/${repository}/compare/${base}...${commit}`);
+  if (diff.merge_base_commit?.sha !== base || !Array.isArray(diff.files) || diff.files.length !== 2 ||
+      new Set(diff.files.map(file => file.filename)).size !== 2 ||
+      diff.files.some(file => !['native-package.nix', 'README.md'].includes(file.filename) || file.status !== 'modified')) throw new Error('Forbidden update diff or stale main baseline');
+  const [beforeNative, afterNative, beforeReadme, afterReadme] = await Promise.all([
+    sourceAt(request, repository, 'native-package.nix', base), sourceAt(request, repository, 'native-package.nix', commit),
+    sourceAt(request, repository, 'README.md', base), sourceAt(request, repository, 'README.md', commit),
+  ]);
+  validateGeneratedUpdate({ beforeNative, afterNative, beforeReadme, afterReadme, version: v });
+}
+
+export async function validateReleaseEvidence({ request, repository, pr, version: v, issue }) {
+  const evidence = [...(pr.body ?? '').matchAll(/<!-- pd2-main-base:([a-f0-9]{40}) -->/g)];
+  // Legacy tested-develop releases deliberately require manual recovery after
+  // rollout; never infer direct-main provenance from old metadata.
+  if (evidence.length !== 1 || (pr.body ?? '').includes('pd2-tested-develop:')) throw new Error('Missing/ambiguous main baseline evidence');
+  const base = evidence[0][1];
+  const ancestry = await request(`/repos/${repository}/compare/${base}...${sha(pr.base.sha)}`);
+  if (!['ahead', 'identical'].includes(ancestry.status)) throw new Error('Update baseline was not on main');
+  await validateUpdateCommit({ request, repository, base, commit: sha(pr.head.sha), version: v });
   if (!(pr.body ?? '').includes(`Closes #${issue}`)) throw new Error('Missing default-branch issue closing reference');
-  return commit;
+  return base;
 }
 
 export async function completeCI({ eventRun, repository, request, runCommand }) {
@@ -189,32 +238,14 @@ export async function completeCI({ eventRun, repository, request, runCommand }) 
   const upstream = await request(`/repos/errolgr/pd2-trade/releases/tags/app-v${v}`);
   if (upstream.tag_name !== `app-v${v}` || upstream.draft || upstream.prerelease) throw new Error('Invalid upstream release');
   const ciURL = `https://github.com/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt}`;
-  if (run.head_branch === 'develop') {
-    const develop = await getRef(request, repository, 'heads', 'develop');
-    if (develop?.object.sha !== commit) throw new Error('Stale develop run; never promote newer untested commits');
-    const head = `release/${v}`;
-    await ensureBranch(request, repository, head, commit);
-    const body = `${marker(v, issue)}\n<!-- pd2-tested-develop:${commit}:${run.id}:${run.run_attempt} -->\n\nFrozen release candidate from tested develop commit ${commit}.\n\nIntegration PR: #${pr.number}\nCI: ${ciURL}\n\nCloses #${issue}\n\nManual release approval/merge required. Release-only fixes require a back-merge PR.`;
-    const releasePR = await ensurePR(request, repository, { head, base: 'main', title: `release: PD2 Trader ${v}`, body });
-    await dispatchCI(request, repository, head, commit);
-    return { status: 'release-prepared', commit, pr: releasePR.number };
-  }
   // main may have advanced since CI started. Prove ancestry, but tag the
   // tested merge commit, never whichever commit main happens to point to now.
-  await validateReleaseEvidence({ request, repository, pr, version: v, issue, workflowId: workflow.id });
+  await validateReleaseEvidence({ request, repository, pr, version: v, issue });
   const comparison = await request(`/repos/${repository}/compare/${commit}...main`);
   if (!['ahead', 'identical'].includes(comparison.status)) throw new Error('Tested commit is not on main');
   const notes = `Nix packaging for upstream PD2 Trader ${v}.\n\nTracking issue: https://github.com/${repository}/issues/${issue}\nRelease PR: https://github.com/${repository}/pull/${pr.number}\nCI: ${ciURL}\n\nExisting build-and-test CI succeeded on merged main commit ${commit}, including its Nix application build, integration contracts, development shell and isolated startup steps. Cached Nix outputs may be reused; this is not a reproducibility or complete game/OAuth/audio integration claim.`;
   const release = await publish({ request, repository, version: v, commit, notes, runCommand });
-  const backmerge = await request(`/repos/${repository}/compare/develop...${commit}`);
-  let backmergePR;
-  if (backmerge.ahead_by > 0) {
-    const head = `feature/backmerge-pd2-trader-${v}`;
-    await ensureBranch(request, repository, head, commit);
-    backmergePR = await ensurePR(request, repository, { head, base: 'develop', title: `chore: back-merge PD2 Trader ${v}`, body: `Back-merge released commit ${commit} into develop.\n\nRelease: ${release.html_url}\n\nManual approval/merge required; do not bypass protections. Tracking issue: #${issue}` });
-    await dispatchCI(request, repository, head, commit);
-  }
-  return { status: 'published', commit, release: release.html_url, backmerge: backmergePR?.number };
+  return { status: 'published', commit, release: release.html_url };
 }
 
 export async function diagnoseCI({ eventRun, repository, request }) {

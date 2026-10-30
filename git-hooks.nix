@@ -55,14 +55,18 @@
       files = "^(\\.github/(scripts|workflows)/|tests/(upstream-release|prepare-update|update-integration|release-lifecycle|release-scenarios)\\.mjs$|automation-tools\\.nix$)";
       pass_filenames = false;
     };
+    cache-ci = {
+      enable = true;
+      name = "Offline cache security and CI event contracts";
+      entry = "${pkgs.nodejs}/bin/node --test tests/cache-ci.mjs";
+      files = "^(\\.github/(scripts/cache-|workflows/(ci|cache-generated)\\.yml)|tests/cache-ci\\.mjs$|flake\\.nix$|git-hooks\\.nix$)";
+      pass_filenames = false;
+    };
     flake-check = {
       enable = true;
       name = "Nix flake checks (including application build and tests)";
       entry = "${pkgs.nix}/bin/nix flake check --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs";
-      stages = [
-        "pre-push"
-        "manual"
-      ];
+      stages = [ "manual" ];
       pass_filenames = false;
       always_run = true;
     };

@@ -23,6 +23,8 @@ test('a newer stable release creates an update issue and reads it back', async (
   assert.match(post.body.body, /0\.10\.9/);
   assert.match(post.body.body, /errolgr\/pd2-trade\/releases\/tag\/app-v0\.10\.10/);
   assert.match(post.body.body, /cargoHash/);
+  assert.doesNotMatch(post.body.body, /develop/);
+  assert.match(post.body.body, /release\/<version>.*main/);
   assert.equal(calls.at(-2).path, '/repos/owner/package/issues/42');
   assert.deepEqual(calls.at(-1).body, { ref: 'main', inputs: { version: '0.10.10', issue: '42' } });
 });
@@ -115,7 +117,7 @@ test('the gh adapter uses arguments and JSON stdin, handles empty replies, and p
   assert.equal(calls[2].args.includes('--input'), false);
   for (const status of [403, 404]) {
     const failure = checker.createRequest(() => ({ status: 1, stderr: `HTTP ${status}`, stdout: '' }));
-    await assert.rejects(failure('/repos/owner/repo'), new RegExp(`GitHub API.*${status}`));
+    await assert.rejects(failure('/repos/owner/repo'), error => error.status === status && /GitHub API/.test(error.message));
   }
   await assert.rejects(checker.createRequest(() => ({ error: new Error('spawn gh ENOENT') }))('/repos/x/y'), /ENOENT/);
   await assert.rejects(checker.createRequest(() => ({ status: 0, stdout: 'not JSON' }))('/repos/x/y'), /JSON/);
