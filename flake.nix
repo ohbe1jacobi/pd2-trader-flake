@@ -129,6 +129,7 @@
         media =
           pkgs.runCommand "pd2-trader-media-contract"
             {
+              inherit (devShell) PD2_TRADER_TEST_FONTCONFIG_FILE;
               nativeBuildInputs = [
                 pkgs.bash
                 pkgs.gnugrep

@@ -39,8 +39,22 @@ cc "$tests/tray-dlopen.c" -ldl \
 printf 'fn main() { println!("Rust compiler works"); }\n' >"$scratch/probe.rs"
 rustc "$scratch/probe.rs" -o "$scratch/rust-probe"
 "$scratch/rust-probe"
-GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 appsink >/dev/null
-GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 autoaudiosink >/dev/null
-GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 fakevideosink >/dev/null
-GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 webvttenc >/dev/null
+# GStreamer's fresh plugin scanner initializes Fontconfig even without a GUI.
+# Use declared fonts and disposable cache/data rather than host configuration.
+export FONTCONFIG_FILE="${PD2_TRADER_TEST_FONTCONFIG_FILE:?Missing Nix test font configuration}"
+unset FONTCONFIG_PATH
+export XDG_CACHE_HOME="$scratch/cache"
+export XDG_DATA_HOME="$scratch/share"
+mkdir -p "$XDG_CACHE_HOME" "$XDG_DATA_HOME"
+{
+	GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 appsink >/dev/null
+	GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 autoaudiosink >/dev/null
+	GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 fakevideosink >/dev/null
+	GST_REGISTRY_1_0="$scratch/gstreamer-registry.bin" gst-inspect-1.0 webvttenc >/dev/null
+} 2>"$scratch/media-stderr.txt"
+cat "$scratch/media-stderr.txt" >&2
+if grep -E 'Fontconfig (error|warning):' "$scratch/media-stderr.txt" >&2; then
+	echo 'FAIL: dev shell contract emitted Fontconfig diagnostics' >&2
+	exit 1
+fi
 printf 'PASS: dev shell Python/KDE tests, JS syntax, native dependencies, C/tray, Rust, and GStreamer\n'

@@ -59,6 +59,15 @@ pkgs.mkShell {
   GDK_BACKEND = "x11";
   # dbus-run-session otherwise looks for host /etc configuration on CI.
   PD2_TRADER_DBUS_SESSION_CONFIG = "${pkgs.dbus}/share/dbus-1/session.conf";
+  # Only the contracts opt into this configuration; do not override desktop fonts.
+  PD2_TRADER_TEST_FONTCONFIG_FILE = pkgs.writeText "pd2-trader-test-fonts.conf" ''
+    <?xml version="1.0"?>
+    <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+    <fontconfig>
+      <dir>${pkgs.dejavu_fonts.minimal}</dir>
+      <cachedir prefix="xdg">fontconfig</cachedir>
+    </fontconfig>
+  '';
   GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
   GST_PLUGIN_SYSTEM_PATH_1_0 = package.mediaPluginPath;
   RUSTFLAGS = "-C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ]}";
