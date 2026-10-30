@@ -1,6 +1,6 @@
 # PD2 Trader for Nix
 
-Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade), the trading companion for Project Diablo 2. Builds the pinned upstream **0.10.10** release from TypeScript/React and Rust source, rather than wrapping an AppImage.
+Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade), the trading companion for Project Diablo 2. Builds the pinned upstream **0.10.12** release from TypeScript/React and Rust source, rather than wrapping an AppImage.
 
 Includes Home Manager and standalone NixOS modules for graphical-login startup, a configurable Diablo II directory, and KDE window-rule workarounds.
 
