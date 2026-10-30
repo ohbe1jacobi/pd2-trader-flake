@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, lstatSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { mirrorDispatch } from './cache-ci.mjs';
+import { createRequest } from './check-upstream.mjs';
 
 // Independent cache authority: filenames or derivation paths alone are not
 // sufficient. Authenticate the complete workflow/source tree and allow data
@@ -46,6 +48,42 @@ export function validateGeneratedSources(beforeNative, afterNative, beforeReadme
   assert.equal(beforeReadme.split(reference).length, 2);
   assert.equal(afterReadme, beforeReadme.replace(reference, `pinned upstream **${next}** release`));
   return next;
+}
+
+// Runs only in trusted main's preparation controller, never in application CI.
+// Explicit dispatch survives GITHUB_TOKEN recursion suppression. The publisher
+// independently revalidates every input; this handoff grants no cache authority.
+export async function dispatchGeneratedCache({ repository, head, branch, token, request, wait, attempts }) {
+  assert.equal(repository, 'ohbe1jacobi/pd2-trader-flake');
+  assert.match(branch, /^release\/(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/);
+  const selected = await mirrorDispatch({ repository, head, branch, token, wait, attempts,
+    request: async url => {
+      const { pathname, search } = new URL(url);
+      const body = await request(`${pathname}${search}`);
+      return { ok: true, json: async () => body };
+    },
+  });
+  for (const value of [selected.id, selected.run_attempt]) assert.match(String(value), /^[1-9][0-9]*$/);
+  const run = await request(`/repos/${repository}/actions/runs/${selected.id}`);
+  for (const key of ['id', 'run_attempt', 'head_sha', 'head_branch', 'event', 'path', 'status', 'conclusion']) {
+    assert.equal(run[key], selected[key], `CI changed before cache dispatch: ${key}`);
+  }
+  await request(`/repos/${repository}/actions/workflows/cache-generated.yml/dispatches`, {
+    method: 'POST', body: { ref: 'main', inputs: {
+      run_id: String(run.id), run_attempt: String(run.run_attempt), head_sha: head,
+    } },
+  });
+}
+
+export function generatedCacheInput(eventName, event) {
+  assert.ok(['workflow_run', 'workflow_dispatch'].includes(eventName), 'Not a cache publication event');
+  const input = eventName === 'workflow_run'
+    ? { runId: event.workflow_run?.id, attempt: event.workflow_run?.run_attempt, head: event.workflow_run?.head_sha }
+    : { runId: event.inputs?.run_id, attempt: event.inputs?.run_attempt, head: event.inputs?.head_sha };
+  assert.match(String(input.runId), /^[1-9][0-9]*$/);
+  assert.match(String(input.attempt), /^[1-9][0-9]*$/);
+  assert.match(input.head, /^[a-f0-9]{40}$/);
+  return { ...input, runId: String(input.runId), attempt: String(input.attempt) };
 }
 
 export async function verifyGeneratedRun({ repository, runId, attempt, head, request }) {
@@ -102,29 +140,36 @@ export async function verifyGeneratedRun({ repository, runId, attempt, head, req
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   // This controller is checked out from protected main, NEVER the run's head.
   assert.equal(process.env.GITHUB_REF, 'refs/heads/main');
-  assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_run');
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-  const request = async path => {
-    const response = await fetch(`https://api.github.com${path}`, { headers: {
-      Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
-    } });
-    if (!response.ok) throw new Error(`Cache provenance lookup failed: HTTP ${response.status}`);
-    return response.json();
-  };
-  const verified = await verifyGeneratedRun({ repository: process.env.GITHUB_REPOSITORY,
-    runId: event.workflow_run?.id, attempt: event.workflow_run?.run_attempt, head: event.workflow_run?.head_sha, request });
-  // Export a TRUSTED BASELINE tree, not candidate code. Only independently
-  // validated literals are written into it. No PR checkout or build takes place.
-  assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), verified.base, 'Controller checkout differs from candidate baseline');
-  execFileSync('git', ['merge-base', '--is-ancestor', verified.base, 'origin/main']);
-  const snapshot = mkdtempSync(join(process.env.RUNNER_TEMP, 'cache-evaluation-'));
-  const archive = execFileSync('git', ['archive', verified.base], { maxBuffer: 16 * 1024 * 1024 });
-  execFileSync('tar', ['-x', '-C', snapshot], { input: archive });
-  for (const [file, value] of [['native-package.nix', verified.native], ['README.md', verified.readme]]) {
-    assert.ok(lstatSync(join(snapshot, file)).isFile()); writeFileSync(join(snapshot, file), value);
+  assert.ok(process.env.GH_TOKEN, 'GH_TOKEN is required');
+  if (process.argv.includes('--dispatch-cache')) {
+    assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_dispatch');
+    await dispatchGeneratedCache({ repository: process.env.GITHUB_REPOSITORY,
+      head: process.env.CACHE_HEAD, branch: process.env.CACHE_BRANCH,
+      token: process.env.GH_TOKEN, request: createRequest() });
+  } else {
+    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+    const input = generatedCacheInput(process.env.GITHUB_EVENT_NAME, event);
+    const request = async path => {
+      const response = await fetch(`https://api.github.com${path}`, { headers: {
+        Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+      } });
+      if (!response.ok) throw new Error(`Cache provenance lookup failed: HTTP ${response.status}`);
+      return response.json();
+    };
+    const verified = await verifyGeneratedRun({ repository: process.env.GITHUB_REPOSITORY, ...input, request });
+    // Export a TRUSTED BASELINE tree, not candidate code. Only independently
+    // validated literals are written into it. No PR checkout or build takes place.
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), verified.base, 'Controller checkout differs from candidate baseline');
+    execFileSync('git', ['merge-base', '--is-ancestor', verified.base, 'origin/main']);
+    const snapshot = mkdtempSync(join(process.env.RUNNER_TEMP, 'cache-evaluation-'));
+    const archive = execFileSync('git', ['archive', verified.base], { maxBuffer: 16 * 1024 * 1024 });
+    execFileSync('tar', ['-x', '-C', snapshot], { input: archive });
+    for (const [file, value] of [['native-package.nix', verified.native], ['README.md', verified.readme]]) {
+      assert.ok(lstatSync(join(snapshot, file)).isFile()); writeFileSync(join(snapshot, file), value);
+    }
+    const roots = JSON.parse(execFileSync('nix', ['eval', '--json', '--no-update-lock-file', '--option', 'allow-import-from-derivation', 'false',
+      `path:${snapshot}#packages.x86_64-linux`, '--apply', 'p: map (x: x.outPath) [ p.pd2-trader p.pd2-trader.native p.frontend ]'], { encoding: 'utf8' }));
+    writeFileSync(join(process.env.RUNNER_TEMP, 'generated-cache-context.json'), JSON.stringify({ ...verified.context, roots: [...new Set(roots)].sort() }) + '\n');
+    appendFileSync(process.env.GITHUB_OUTPUT, `artifact=${verified.artifact}\nrun_id=${verified.context.run}\n`);
   }
-  const roots = JSON.parse(execFileSync('nix', ['eval', '--json', '--no-update-lock-file', '--option', 'allow-import-from-derivation', 'false',
-    `path:${snapshot}#packages.x86_64-linux`, '--apply', 'p: map (x: x.outPath) [ p.pd2-trader p.pd2-trader.native p.frontend ]'], { encoding: 'utf8' }));
-  writeFileSync(join(process.env.RUNNER_TEMP, 'generated-cache-context.json'), JSON.stringify({ ...verified.context, roots: [...new Set(roots)].sort() }) + '\n');
-  appendFileSync(process.env.GITHUB_OUTPUT, `artifact=${verified.artifact}\n`);
 }

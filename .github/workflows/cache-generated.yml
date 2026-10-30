@@ -1,6 +1,22 @@
 name: Cache validated generated update
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Exact successful generated CI run ID
+        required: true
+        type: string
+      run_attempt:
+        description: Exact CI run attempt
+        required: true
+        type: string
+      head_sha:
+        description: Full generated commit SHA independently verified before publication
+        required: true
+        type: string
+  # Retain the completion fallback for human-dispatched CI. Bot-dispatched CI
+  # also gets an explicit handoff from trusted preparation; never rely on this.
   workflow_run:
     workflows: [Build and test]
     types: [completed]
@@ -10,14 +26,19 @@ permissions:
   actions: read
 
 concurrency:
-  group: cache-generated-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: cache-generated-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    # workflow_run uses the default branch ref, not the candidate release ref.
+    # Both event paths execute on main, never the candidate release ref. Inputs
+    # are only lookup hints; the controller independently authenticates the run.
     environment: cachix-publish
-    if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success' && (startsWith(github.event.workflow_run.head_branch, 'release/') || startsWith(github.event.workflow_run.head_branch, 'feature/update-pd2-trader-'))
+    if: >-
+      github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success' &&
+      (startsWith(github.event.workflow_run.head_branch, 'release/') || startsWith(github.event.workflow_run.head_branch, 'feature/update-pd2-trader-'))))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -58,7 +79,7 @@ jobs:
           artifact-ids: ${{ steps.verify.outputs.artifact }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.verify.outputs.run_id }}
           path: ${{ runner.temp }}/generated-cache-artifact
           merge-multiple: true
 

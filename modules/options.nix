@@ -10,7 +10,12 @@
     type = lib.types.package;
     default = defaultPackage;
     defaultText = lib.literalExpression "pkgs.callPackage ../package.nix { }";
-    description = "PD2 Trader package to install and launch.";
+    description = ''
+      PD2 Trader package to install and launch. Flake-exported modules select
+      the flake's locked package by default; direct module-file imports use
+      the consuming configuration's package set. An explicit value overrides
+      either default.
+    '';
   };
   autostart = lib.mkOption {
     type = lib.types.bool;

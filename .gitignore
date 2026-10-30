@@ -4,6 +4,11 @@
 !/LICENSE.md
 !/CHANGELOG.md
 !/AGENTS.md
+!/CONTRIBUTING.md
+!/docs/installation.md
+!/docs/configuration.md
+!/docs/troubleshooting.md
+!/docs/maintaining.md
 
 # Optional development checkout, historical packaging, and local diagnostics.
 /upstream/
