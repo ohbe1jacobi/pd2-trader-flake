@@ -65,8 +65,11 @@
               cp ${./.github/scripts/cache-ci.mjs} .github/scripts/cache-ci.mjs
               cp ${./.github/scripts/cache-transfer.mjs} .github/scripts/cache-transfer.mjs
               cp ${./.github/scripts/cache-generated.mjs} .github/scripts/cache-generated.mjs
+              cp ${./.github/scripts/check-upstream.mjs} .github/scripts/check-upstream.mjs
+              cp ${./.github/scripts/update-integration.mjs} .github/scripts/update-integration.mjs
               cp ${./.github/workflows/ci.yml} .github/workflows/ci.yml
               cp ${./.github/workflows/cache-generated.yml} .github/workflows/cache-generated.yml
+              cp ${./.github/workflows/prepare-update.yml} .github/workflows/prepare-update.yml
               cp ${./tests/cache-ci.mjs} tests/cache-ci.mjs
               cp ${./flake.nix} flake.nix
               cp ${./git-hooks.nix} git-hooks.nix

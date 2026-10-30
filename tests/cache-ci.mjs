@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import test from 'node:test';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -12,6 +13,26 @@ const event = () => ({ action: 'opened', sender: { login: 'github-actions[bot]',
   base: { ref: 'develop', repo: { full_name: repository } },
   head: { ref: 'feature/update-pd2-trader-0.10.10', sha, repo: { full_name: repository } },
 } });
+
+test('Nix cache check declares local module dependencies and literal contract file reads', () => {
+  const check = read('flake.nix').split('        cache-ci =')[1].split('        upstream-release =')[0];
+  const inputs = new Set([...check.matchAll(/\$\{\.\/([^}]+)\}/g)].map(match => match[1]));
+  const pending = ['tests/cache-ci.mjs'];
+  const visited = new Set();
+  while (pending.length) {
+    const path = pending.pop();
+    if (visited.has(path)) continue;
+    visited.add(path);
+    assert.ok(inputs.has(path), `cache-ci Nix check must stage imported module: ${path}`);
+    const imports = read(path).matchAll(/\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*\(\s*['"](\.[^'"]+)['"]/g);
+    for (const match of imports) {
+      pending.push(posix.normalize(posix.join(posix.dirname(path), match[1] ?? match[2])));
+    }
+  }
+  for (const [, path] of read('tests/cache-ci.mjs').matchAll(/\bread\(['"]([^'"]+)['"]\)/g)) {
+    assert.ok(inputs.has(path), `cache-ci Nix check must stage contract file: ${path}`);
+  }
+});
 
 test('only automation-marked same-repo bot events mirror explicit dispatch; humans and forks build', async () => {
   const { automationHead } = await gate();
