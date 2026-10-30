@@ -59,7 +59,7 @@
       enable = true;
       name = "Offline cache security and CI event contracts";
       entry = "${pkgs.nodejs}/bin/node --test tests/cache-ci.mjs";
-      files = "^(\\.github/(scripts/cache-|workflows/(ci|cache-generated)\\.yml)|tests/cache-ci\\.mjs$|flake\\.nix$|git-hooks\\.nix$)";
+      files = "^(\\.github/(scripts/(cache-|update-integration\\.mjs)|workflows/(ci|cache-generated|prepare-update)\\.yml)|tests/cache-ci\\.mjs$|flake\\.nix$|git-hooks\\.nix$)";
       pass_filenames = false;
     };
     flake-check = {
