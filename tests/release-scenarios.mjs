@@ -23,6 +23,14 @@ function scenario(branch = 'main') {
   const request = async (path, options = {}) => {
     const body = options.body;
     if (options.method) writes.push([path, options]);
+    if (path.endsWith('/git/matching-refs/heads/main')) return [{ ref: 'refs/heads/main', object: { sha: commit } }];
+    if (path.includes('/releases?')) return releases;
+    if (path.endsWith('/releases/latest')) {
+      if (!state.latest) throw Object.assign(new Error('Not Found'), { status: 404 });
+      return state.latest;
+    }
+    if (path.endsWith('/releases/10') && options.method === 'PATCH') { state.latest = releases[0]; return releases[0]; }
+    if (path.endsWith('/runs/11/attempts/1')) return { ...run, run_attempt: 1 };
     if (path.endsWith('/workflows/ci.yml')) return { id: 7 };
     if (path.endsWith('/runs/11')) return run;
     if (path.includes('/jobs?')) return { total_count: state.jobs.length, jobs: state.jobs };
@@ -63,7 +71,9 @@ function scenario(branch = 'main') {
   };
   const runCommand = (command, args) => {
     assert.equal(command, 'gh'); assert.ok(args.includes('--verify-tag'));
-    releases.push({ tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10', body: args[args.indexOf('--notes') + 1], draft: false, prerelease: false, html_url: 'https://fixture/release' });
+    assert.ok(args.includes('--latest=true'));
+    releases.push({ id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10', body: args[args.indexOf('--notes') + 1], draft: false, prerelease: false, html_url: 'https://fixture/release' });
+    state.latest = releases[0];
     return { status: 0 };
   };
   return Object.assign(state, { request, runCommand, eventRun: { ...run }, repository });
@@ -78,6 +88,53 @@ test('merged main CI publishes exact tested SHA once with no promotion or backme
   assert.equal(state.releases.length, 1);
   assert.equal(state.refs.size, 1);
   assert.equal(first.backmerge, undefined);
+});
+test('an older merged-main rerun is superseded without publication when main packages a newer version', async () => {
+  const state = scenario(); const request = state.request;
+  state.request = async (path, options) => path.endsWith('/git/matching-refs/heads/main') ?
+    [{ ref: 'refs/heads/main', object: { sha: '9'.repeat(40) } }] :
+    path.endsWith(`contents/native-package.nix?ref=${'9'.repeat(40)}`) ?
+      { type: 'file', encoding: 'base64', content: Buffer.from(before.replace('0.10.9', '0.10.11')).toString('base64') } :
+      request(path, options);
+  assert.equal((await completeCI(state)).status, 'superseded');
+  assert.equal(state.writes.length, 0);
+  assert.equal(state.releases.length, 0);
+});
+test('recovery rejects existing notes missing the exact merged-main CI evidence', async () => {
+  const state = scenario(); await completeCI(state);
+  state.releases[0].body = `Nix packaging for upstream PD2 Trader 0.10.10. Tested ${commit}`;
+  state.latest = null; state.writes.length = 0;
+  await assert.rejects(completeCI(state), /provenance/);
+  assert.equal(state.writes.length, 0);
+});
+test('a validated second CI attempt repairs Latest without replacing the original successful evidence', async () => {
+  const state = scenario(); await completeCI(state);
+  const original = state.releases[0].body;
+  state.latest = null; state.writes.length = 0;
+  state.run.run_attempt = 2; state.eventRun.run_attempt = 2;
+  assert.equal((await completeCI(state)).status, 'published');
+  assert.equal(state.releases.length, 1);
+  assert.equal(state.releases[0].body, original);
+  assert.match(original, /runs\/11\/attempts\/1/);
+  assert.deepEqual(state.writes, [['/repos/owner/repo/releases/10', { method: 'PATCH', body: { make_latest: 'true' } }]]);
+});
+test('recovery rejects forged or failed original CI evidence before Latest writes', async () => {
+  for (const failure of ['foreign', 'failed', 'wrong-sha', 'api']) {
+    const state = scenario(); await completeCI(state);
+    state.latest = null; state.writes.length = 0;
+    state.run.run_attempt = 2; state.eventRun.run_attempt = 2;
+    if (failure === 'foreign') state.releases[0].body = state.releases[0].body.replace('https://github.com/owner/repo/actions/', 'https://github.com/foreign/repo/actions/');
+    const request = state.request;
+    state.request = async (path, options) => {
+      if (path.endsWith('/runs/11/attempts/1')) {
+        if (failure === 'api') throw new Error('Historical CI API unavailable');
+        return { ...state.run, run_attempt: 1, ...(failure === 'failed' ? { conclusion: 'failure' } : { head_sha: 'f'.repeat(40) }) };
+      }
+      return request(path, options);
+    };
+    await assert.rejects(completeCI(state), /provenance|trusted CI|API unavailable/);
+    assert.equal(state.writes.length, 0);
+  }
 });
 test('develop successful CI cannot promote an upstream bump', async () => {
   const state = scenario('develop');

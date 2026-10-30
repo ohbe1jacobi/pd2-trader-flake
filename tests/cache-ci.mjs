@@ -85,6 +85,55 @@ test('CI restricts pushes, reads the public cache, isolates cache writes to trus
   for (const uses of ci.matchAll(/uses: ([^\s]+)/g)) assert.match(uses[1], /@[a-f0-9]{40}$/);
 });
 
+// Official release tags and action.yml were checked against the actions repos.
+// Keep upload/download paired: both use Node 24 and the immutable artifact service.
+test('cache artifact actions use the verified Node 24 release pins', () => {
+  const pins = new Map([
+    ['upload-artifact', ['cf430e030ddbb5b0abf93d22962f4752f3646cd9', 'v7.0.2']],
+    ['download-artifact', ['9000827ccba6bdab643e8b6fd33ac0654aef8333', 'v8.0.2']],
+  ]);
+  const actions = ['.github/workflows/ci.yml', '.github/workflows/cache-generated.yml']
+    .flatMap(path => [...read(path).matchAll(/uses: actions\/(upload-artifact|download-artifact)@([^\s]+) # ([^\s]+)/g)]);
+  assert.equal(actions.length, 3, 'one upload and both isolated publisher downloads must be covered');
+  for (const [, action, pin, version] of actions) {
+    assert.deepEqual([pin, version], pins.get(action), `${action} must use its verified Node 24 release`);
+  }
+});
+
+test('cache artifact runtime updates preserve exact-run transfer and extraction contracts', () => {
+  const ci = read('.github/workflows/ci.yml');
+  const generated = read('.github/workflows/cache-generated.yml');
+  const artifactStep = (workflow, action) => {
+    const steps = workflow.split(/\n      - name:/).filter(step => step.includes(`uses: actions/${action}@`));
+    assert.equal(steps.length, 1);
+    return steps[0];
+  };
+  const upload = artifactStep(ci, 'upload-artifact');
+  const download = artifactStep(ci, 'download-artifact');
+  const authenticated = artifactStep(generated, 'download-artifact');
+  for (const step of [upload, download]) {
+    assert.match(step, /name: trusted-cache-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/);
+    assert.match(step, /path: cache-transfer\//);
+  }
+  assert.match(upload, /if-no-files-found: error/);
+  assert.match(upload, /retention-days: 1/);
+  assert.match(upload, /compression-level: 0/);
+  assert.doesNotMatch(upload, /archive: false|overwrite: true|include-hidden-files: true/);
+  assert.doesNotMatch(download, /artifact-ids:|pattern:|github-token:|repository:|run-id:/);
+  for (const input of [
+    'artifact-ids: ${{ steps.verify.outputs.artifact }}',
+    'github-token: ${{ github.token }}',
+    'repository: ${{ github.repository }}',
+    'run-id: ${{ github.event.workflow_run.id }}',
+    'path: ${{ runner.temp }}/generated-cache-artifact',
+    'merge-multiple: true',
+  ]) assert.ok(authenticated.includes(input), `authenticated download must retain ${input}`);
+  assert.doesNotMatch(authenticated, /\n          (?:name|pattern):/);
+  for (const step of [download, authenticated]) {
+    assert.doesNotMatch(step, /skip-decompress: true|digest-mismatch: (?:ignore|info|warn)/);
+  }
+});
+
 test('flake advertises the verified public cache without changing module defaults or lock', () => {
   const flake = read('flake.nix');
   assert.match(flake, /extra-substituters = \[ "https:\/\/pd2-trader-flake.cachix.org" \];/);
