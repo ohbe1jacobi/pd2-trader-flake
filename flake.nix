@@ -1,5 +1,11 @@
 {
   description = "PD2 Trader compiled from pinned Rust and frontend source, without AppImage runtimes";
+  nixConfig = {
+    extra-substituters = [ "https://pd2-trader-flake.cachix.org" ];
+    extra-trusted-public-keys = [
+      "pd2-trader-flake.cachix.org-1:rg+7WukdJd8/1+Ky8c7kUHivrvfcmOPVlGUxz4CqLM4="
+    ];
+  };
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   # Used by the module evaluation tests; consumers need not import this HM instance.
   inputs.home-manager.url = "github:nix-community/home-manager/release-26.05";
@@ -51,12 +57,29 @@
       nixosModules.default = self.nixosModules.pd2-trader;
       checks.${system} = {
         pre-commit = preCommitCheck;
+        cache-smoke = import ./tests/cache-smoke.nix { inherit pkgs package; };
+        cache-ci =
+          pkgs.runCommand "pd2-trader-cache-ci-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
+            ''
+              mkdir -p .github/scripts .github/workflows tests
+              cp ${./.github/scripts/cache-ci.mjs} .github/scripts/cache-ci.mjs
+              cp ${./.github/scripts/cache-transfer.mjs} .github/scripts/cache-transfer.mjs
+              cp ${./.github/scripts/cache-generated.mjs} .github/scripts/cache-generated.mjs
+              cp ${./.github/workflows/ci.yml} .github/workflows/ci.yml
+              cp ${./.github/workflows/cache-generated.yml} .github/workflows/cache-generated.yml
+              cp ${./tests/cache-ci.mjs} tests/cache-ci.mjs
+              cp ${./flake.nix} flake.nix
+              cp ${./git-hooks.nix} git-hooks.nix
+              node --test tests/cache-ci.mjs
+              touch "$out"
+            '';
 
         upstream-release =
           pkgs.runCommand "pd2-trader-upstream-release-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
             ''
-              mkdir -p .github/scripts tests
+              mkdir -p .github/scripts .github/workflows tests
               cp ${./.github/scripts}/*.mjs .github/scripts/
+              cp ${./.github/workflows/release-lifecycle.yml} .github/workflows/release-lifecycle.yml
               cp ${./tests/upstream-release.mjs} tests/upstream-release.mjs
               cp ${./tests/prepare-update.mjs} tests/prepare-update.mjs
               cp ${./tests/update-integration.mjs} tests/update-integration.mjs

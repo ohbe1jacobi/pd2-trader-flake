@@ -21,5 +21,7 @@ export GST_PLUGIN_PATH=
 export GST_REGISTRY_1_0="$PWD/media-registry.bin"
 gst-inspect-1.0 appsink >appsink.txt
 gst-inspect-1.0 autoaudiosink >autoaudiosink.txt
+gst-inspect-1.0 fakevideosink >fakevideosink.txt
+gst-inspect-1.0 webvttenc >webvttenc.txt
 gst-launch-1.0 -q filesrc location="$sound" ! decodebin ! audioconvert ! fakesink
-echo 'PASS: packaged media plugin path finds both sinks and decodes the real notification MP3'
+echo 'PASS: packaged media plugins include audio/video sinks and WebVTT, and decode the real notification MP3'

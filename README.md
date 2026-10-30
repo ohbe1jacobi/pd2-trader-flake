@@ -11,7 +11,7 @@ These apply to every installation method below:
 - **Platform:** **x86_64-linux** only; not macOS or ARM. Trader uses X11/XWayland for game detection and overlay/input handling.
 - **Game:** install Diablo II/Project Diablo 2 and Wine/Lutris separately. This package does not include, install, or configure the game.
 - **Flakes:** the modern `nix-command` and `flakes` features must be enabled (shown per method below).
-- **Build cost:** packages are built from source, and the first build can take substantial time, disk space, and memory. Rust compilation is serial by default; see [build resource limits](#build-parallelism-and-resource-limits) before increasing concurrency.
+- **Build cost:** matching CI-built outputs can be downloaded from the opt-in [public binary cache](#public-binary-cache). Cache misses/custom inputs still build from source and can take substantial time, disk space, and memory. Rust compilation is serial by default; see [build resource limits](#build-parallelism-and-resource-limits) before increasing concurrency.
 - **One instance:** close any running Trader before launching another or relaunching with changed settings. Every method uses the upstream application ID and its existing settings/login storage.
 - **Updates** follow this packaging repository's pinned upstream version and dependencies (the `main` branch when installed from GitHub), not arbitrary upstream application releases. Both modules disable automatic in-app updates by default through the saved setting; notifications and manual update actions remain available. Plain package/profile installs do not manage this preference. Use Nix to update, not the in-app updater.
 - **Uninstalling** never deletes saved settings/login data or the game.
@@ -22,7 +22,6 @@ Add the input to your flake (with flakes already enabled):
 
 ```nix
 inputs.pd2-trader.url = "github:ohbe1jacobi/pd2-trader-flake/main";
-inputs.pd2-trader.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
 Then, with `inputs` in scope, add this to **either** your NixOS or your Home Manager configuration:
@@ -35,6 +34,8 @@ Then, with `inputs` in scope, add this to **either** your NixOS or your Home Man
   # imports = [ inputs.pd2-trader.homeManagerModules.default ];
 
   programs.pd2-trader.enable = true;
+  # Keep the flake's own locked package for matching cached application builds.
+  programs.pd2-trader.package = inputs.pd2-trader.packages.x86_64-linux.default;
   programs.pd2-trader.d2dir = "/path/to/prefix/drive_c/Program Files (x86)/Diablo II";
 }
 ```
@@ -44,6 +45,34 @@ Then, with `inputs` in scope, add this to **either** your NixOS or your Home Man
 Rebuild, then launch `pd2-trader` or log in again; Trader starts with your graphical session. Use only one of the two modules. See [Options](#options) for autostart, updates, and KDE rules.
 
 Detailed, step-by-step instructions for [NixOS](#install-on-nixos), [Home Manager](#home-manager), and [other Linux distributions](#install-with-nix-on-another-linux-distribution) follow below.
+
+## Public binary cache
+
+The public cache is `https://pd2-trader-flake.cachix.org`. Downloads need no Cachix account or token. Trusting its signing key authorizes this project's builders to supply binaries; opt in deliberately. This does not replace or disable `cache.nixos.org`.
+
+On **NixOS**, merge these settings into your existing system configuration:
+
+```nix
+nix.settings.extra-substituters = [ "https://pd2-trader-flake.cachix.org" ];
+nix.settings.extra-trusted-public-keys = [
+  "pd2-trader-flake.cachix.org-1:rg+7WukdJd8/1+Ky8c7kUHivrvfcmOPVlGUxz4CqLM4="
+];
+```
+
+Activate those Nix settings through your normal rebuild workflow **before** expecting an unprivileged command to use the new cache. Adding the settings in the same configuration that first installs Trader does not configure the currently running daemon retroactively.
+
+On **other Linux distributions**, an administrator can add these lines to the daemon's `/etc/nix/nix.conf`, preserving existing settings, then restart the Nix daemon using that installation's service manager:
+
+```ini
+extra-substituters = https://pd2-trader-flake.cachix.org
+extra-trusted-public-keys = pd2-trader-flake.cachix.org-1:rg+7WukdJd8/1+Ky8c7kUHivrvfcmOPVlGUxz4CqLM4=
+```
+
+Direct flake commands also advertise these settings through `nixConfig`; inspect Nix's trust prompt before accepting. `--accept-flake-config` does not let an untrusted client grant its daemon a new substituter/key. A flake used merely as another flake's input does not configure the consuming daemon. Home Manager users should have the daemon administrator enable the cache; do not add all users to `trusted-users` to work around that boundary.
+
+For cache-compatible **module installations**, explicitly choose `inputs.pd2-trader.packages.x86_64-linux.default` as shown here and keep this input's own nixpkgs lock: do not add `pd2-trader.inputs.nixpkgs.follows = "nixpkgs"`. This leaves the rest of your system on its existing nixpkgs. Module defaults and the overlay intentionally still build with the consumer's `pkgs`; that remains available for customization but may miss this cache. Local helper wrappers may differ even when the expensive native application is cached.
+
+Cache entries must match exact build inputs, not just the upstream version. Missing/evicted outputs, custom source/package overrides, and different nixpkgs can still compile. CI uploads only after successful checks; a newly pushed revision may not yet be cached. Cache substitution reuses previously checked outputs; it does not rerun their unit tests or establish reproducibility. No cache write credential belongs in user configuration or the Nix store.
 
 ## Install on NixOS
 
@@ -85,7 +114,6 @@ If you do not have a system flake yet, create `/etc/nixos/flake.nix` using this 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     pd2-trader.url = "github:ohbe1jacobi/pd2-trader-flake/main";
-    pd2-trader.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = { nixpkgs, pd2-trader, ... }: {
@@ -97,6 +125,7 @@ If you do not have a system flake yet, create `/etc/nixos/flake.nix` using this 
         {
           programs.pd2-trader = {
             enable = true;
+            package = pd2-trader.packages.x86_64-linux.default;
             # Actual Diablo II directory: the parent of ProjectD2.
             d2dir = "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
             autostart = true;
@@ -153,7 +182,6 @@ Add the flake as an input (or, for a local copy next to your configuration's `fl
 
 ```nix
 inputs.pd2-trader.url = "github:ohbe1jacobi/pd2-trader-flake/main";
-inputs.pd2-trader.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
 Then, with `inputs` in scope:
@@ -162,6 +190,7 @@ Then, with `inputs` in scope:
 {
   imports = [ inputs.pd2-trader.homeManagerModules.default ];
   programs.pd2-trader.enable = true;
+  programs.pd2-trader.package = inputs.pd2-trader.packages.x86_64-linux.default;
 }
 ```
 
@@ -449,38 +478,53 @@ This path intentionally imports **application source**, not game data. Both fron
 
 ### Update the pinned release
 
-Application updates follow a reviewed lifecycle: **upstream release → tracking issue → application-update PR into `develop` → tested release snapshot → release PR into `main` → tested annotated tag/GitHub Release → backmerge PR into `develop`**. `main` remains the default and stable branch. Automation prepares changes and publishes after the checks below; it does **not** merge PRs or enable auto-merge. Maintainers explicitly review and merge the update, release, and backmerge PRs.
+Routine upstream updates follow **upstream release → tracking issue → frozen `release/<version>` PR into `main` → manual merge → successful merged-main CI → annotated tag/GitHub Release**. `main` remains the default and stable branch. `develop` is for packaging/features, not an intermediate step for upstream version bumps. Automation never merges PRs or enables auto-merge. Synchronize released changes into `develop` deliberately before a feature release; no per-version backmerge PR is generated.
 
 #### Workflows and review gates
 
 - **Discovery — `.github/workflows/upstream-release.yml`:** **Check upstream release** checks upstream's latest stable release daily at **06:23 UTC**, or by manual dispatch. A newer `app-vX.Y.Z` opens an issue titled `Update PD2 Trader to X.Y.Z`. All pages of open and closed issues are checked: an open issue remains eligible for preparation/retry on later daily runs; a closed issue dismisses that version. Keep the title unchanged. Drafts, prereleases, unrelated tags, and equal/older versions are ignored. API errors fail the run rather than meaning “no update.”
-- **Preparation — `.github/workflows/prepare-update.yml`:** the checker explicitly dispatches preparation with the validated version and issue number. Preparation creates `feature/update-pd2-trader-<version>` from `develop`, updates the literal `version` and source `hash`, `npmDepsHash`, and `cargoHash` in `native-package.nix` using `nix-update` 1.16.0 pinned by revision and source hash in `automation-tools.nix`, and updates the documented package version. Fixed-output hashes must match the fetched source and dependency contents; placeholders or guessed hashes are not an acceptable update. This is an **application** update, not a `nix flake update`: generated changes may touch only `native-package.nix` and the README packaged-version reference, keeping **both `flake.nix` and `flake.lock` unchanged**. Preparation opens/reuses the update PR into `develop` and explicitly dispatches existing CI with an `expected_sha` input; CI rejects a moved/mismatched head before building. Failures leave the issue and any existing PR open for diagnosis, not a false completion or automatic merge.
-- **Gate 1 — update into `develop`:** review the upstream changes, generated diff, and successful **Build and test** workflow, including the named job **`Nix build and tests (x86_64-linux)`**, before manually merging the application-update PR. Afterward the lifecycle waits for successful **push CI on the actual merged `develop` commit**, not merely the earlier PR head or synthetic PR merge check. That exact tested SHA becomes the frozen release-branch snapshot and the source of a release PR into `main`.
-- **Gate 2 — release into `main`:** inspect the frozen release PR and require **`Nix build and tests (x86_64-linux)`** before manually merging it. Publishing waits again for successful **push CI on the actual merged `main` commit**. The tag must point to that exact tested merged SHA, never whatever `main` happens to point to later. A green check for another SHA, an unrelated workflow/job, a failed/skipped/cancelled run, or a pre-merge PR check is not publication authorization.
-- **Orchestration — `.github/workflows/release-lifecycle.yml`:** completion of **Build and test** wakes the `workflow_run` orchestrator. It validates the originating repository, event, branch, named successful CI job, exact commit, merged PR, and lifecycle metadata before advancing. Update/release PR bodies carry `<!-- pd2-update:VERSION:ISSUE -->`; release PRs also record `<!-- pd2-tested-develop:SHA:RUN:ATTEMPT -->`. Preserve these markers when editing descriptions. Before publication the controller independently reads that exact successful develop CI attempt, checks its integration PR/version/issue, and proves the release head descends from the tested source. A title, a branch named `release/*`, or a successful main run alone is not sufficient identity.
-- **Publication and synchronization:** create an annotated tag object and its `refs/tags/...` reference using `gh api`, the equivalent of `git tag -a` followed by pushing that tag. The conventions are tag `v<version>`, annotation/title `PD2 Trader <version>`, and notes beginning `Nix packaging for upstream PD2 Trader <version>.` Read back the annotation/target, then use `gh release create --verify-tag`; no binary assets are uploaded. Releases use `--latest=false` so a delayed older run cannot steal GitHub's latest-release designation; selecting a latest release remains a maintainer decision. Finally, when the released state is ahead of `develop`, open `feature/backmerge-pd2-trader-<version>` from that exact tested `main` SHA, open a PR into `develop`, and dispatch CI. This also preserves Git Flow ancestry when there were no release-only file fixes. A maintainer reviews and merges it manually. No branches are automatically deleted; remove completed feature/release/backmerge branches only after publication and synchronization, without deleting active work or bypassing protection.
+- **Preparation — `.github/workflows/prepare-update.yml`:** discovery explicitly dispatches validated `version` and `issue` inputs. Preparation creates `release/<version>` from a recorded exact `main` baseline, updates source/npm/Cargo hashes with the pinned `nix-update` 1.16.0 in `automation-tools.nix`, verifies realized fixed-output contents and repeat-run idempotence, and updates the README packaged-version reference. Generated changes may touch only those literal values in `native-package.nix` and the README reference. **Both `flake.nix` and `flake.lock` stay unchanged; no `nix flake update` runs.** Preparation opens/reuses one PR into `main` and dispatches CI with `expected_sha`; a moved/mismatched head fails before building.
+- **Manual release gate:** review upstream changes, the generated diff, and **`Nix build and tests (x86_64-linux)`** before merging into `main`. Ordinary feature PRs use PR-triggered CI. Same-repository bot-generated update PR events mirror the exact-head dispatched result rather than compiling a second time; failures/timeouts fail the mirror, never skipped-green. Human update events run the normal checks. For best cache reuse, also wait for **Cache validated generated update** to finish before merging.
+- **Publication gate:** require successful CI on the **actual resulting merged `main` SHA**, not merely the pre-merge head. The `workflow_run` controller checks trusted repository/workflow/event/run attempt/job, eligible merged PR, exact version/issue, recorded baseline, full Git trees/modes, and the narrow generated payload. Preserve `<!-- pd2-update:VERSION:ISSUE -->` and `<!-- pd2-main-base:SHA -->` in release PR bodies. Legacy develop-based provenance fails closed; ordinary feature PRs and arbitrary main changes cannot publish upstream releases.
+- **Publication:** create/reuse the annotated tag through `gh api`, verify the exact tested target and annotation, then use `gh release create --verify-tag`. Conventions remain `v<version>`, annotation/title `PD2 Trader <version>`, and notes beginning `Nix packaging for upstream PD2 Trader <version>.` No release binary assets are required; installable binaries are served by Cachix. Releases use `--latest=false` to avoid delayed older runs changing GitHub's latest designation. Readback uses the exact release-tag endpoint with bounded retries and field-specific errors. Correct existing tags/releases are reused; conflicting ones are never overwritten.
+- **Development and cleanup:** packaging/features branch from `develop` and return by reviewed PR. Before a feature release, synchronize released changes and resolve any conflicts deliberately. Use merge commits between long-lived branches to preserve ancestry; identical files do not imply identical commit history. Branch deletion remains a maintainer action after publication; never delete unfinished work just to clear ahead/behind counters.
 
 CI still builds the source package with frontend Vitest and native Cargo tests enabled, runs the flake/module/helper contracts and development-shell checks, and exercises isolated graphical startup. The lifecycle gates do not substitute a lightweight metadata test for the existing x86_64-linux build/test job.
 
 #### Repository setup and trust boundary
 
-1. Land the automation, scripts, tests, and CI changes on an **authorized `main`** first. Keep `main` as GitHub's default branch: scheduled workflows and the `workflow_run`/manual-dispatch entry points need their definitions there. Only then bootstrap `develop` from that authorized `main` commit and push it through your normal authorized maintainer workflow. Do not bootstrap from an older remote `main` that lacks the automation, or from an arbitrary unreviewed local checkout.
+1. Review these changes through `develop`, then land the reviewed automation on **`main`**. Keep `main` as the default branch: scheduled and privileged completion workflows need their definitions there. Local/feature-branch edits alone do not install the new lifecycle. Finish any in-flight legacy release before switching protocols; do not replace legacy PR provenance to make it appear newly generated.
 2. Enable repository Issues and Actions. In **Settings → Actions → General**, allow GitHub Actions to create pull requests, subject to organization policy. Configure branch protection/rulesets for `develop` and `main` to require human review and **`Nix build and tests (x86_64-linux)`**; do not grant automation a review/check bypass. Verify the displayed check name against an actual CI run when configuring the rule.
-3. Use the built-in `GITHUB_TOKEN`; `GH_TOKEN` is the environment variable passed to `gh`, not a separately provisioned personal token. Scope permissions per job: discovery needs `contents: read`, `issues: write`, and `actions: write` for preparation dispatch; preparation needs `contents: write`, `pull-requests: write`, issue access, and `actions: write` for CI dispatch; lifecycle orchestration needs `actions: read` to inspect runs/jobs, `contents: write` for release refs/tags/releases, `pull-requests: write` for lifecycle PRs, and issue access for tracking. Any job that dispatches another workflow needs `actions: write`. Read-only CI keeps `contents: read`. Repository/organization policy and rulesets must permit these operations; a YAML permission declaration cannot override a policy denial.
-4. Explicit preparation/CI dispatches are part of the protocol. GitHub currently creates **approval-required** runs for `pull_request` events of type `opened`, `synchronize`, or `reopened` caused by `GITHUB_TOKEN`; a user with write access can approve them. Explicit `workflow_dispatch` avoids depending on that approval step. Other token-generated events, including branch/tag pushes, remain suppressed rather than recursively starting ordinary push/tag workflows. Human merges normally start actual merged-commit **push** CI for the two gates. Recovery can rerun that exact run, or dispatch CI on the current `develop`/`main` head with `expected_sha` equal to its actual merged SHA. A dispatch on a feature/release head or an old PR check cannot authorize promotion/publication. During the authorized rehearsal, verify the explicitly dispatched CI check is attached to the intended PR-head SHA and satisfies the configured required check; local mocks cannot prove GitHub's ruleset behavior. Do not bypass protection if another approval-required PR run is pending.
+3. Use the built-in `GITHUB_TOKEN`; `GH_TOKEN` is the environment variable passed to `gh`, not a separately provisioned personal token. Scope permissions per job: discovery needs `contents: read`, `issues: write`, and `actions: write`; the preparation writer needs `contents: write`, `pull-requests: write`, issue access, and `actions: write`; the publication controller needs `actions: read`, `contents: write`, `pull-requests: read`, and `issues: read`. Failure diagnostics separately need `issues: write`. Ordinary CI needs only `contents: read` and `actions: read`; Cachix uploads use the separate cache token only on isolated upload steps. Repository/organization policy can still deny an operation; YAML permissions cannot override policy.
+4. Explicit preparation/CI dispatches remain authoritative for generated updates; do not depend on bot branch/tag pushes starting another workflow. Approval-required bot PR runs may still need a maintainer to approve execution; their mirror reports the exact dispatched build's result. Human merges start merged-commit push CI. Recovery can rerun that exact run or dispatch CI on current `main` with `expected_sha` equal to its actual merged SHA. A release-head dispatch or old PR check cannot authorize publication. Verify required-check association, mirror failure behavior, and repository policy during remote rehearsal; do not bypass protection to hide a pending/failed run.
 5. Treat `workflow_run` as privileged. The orchestrator checks out and executes the trusted scripts from **`main`**, not code from a PR or the completed run's branch. It obtains identifiers/statuses through GitHub's API and validates them. It does **not** download and execute CI artifacts, source an artifact as shell code, or run an untrusted PR script with write credentials. Ordinary build CI has no release-write permission.
-6. Require branches to be up to date before merging, disallow force pushes/deletions of `main` and `develop`, and require maintainer review for workflow/controller changes (for example with CODEOWNERS/rulesets). Preserve normal `feature/*` and `hotfix/*` PR development. The two manual gates depend on configured repository protections, not merely text in a PR description. Tracking issues close through the release PR's `Closes #N` **only when merged into default-branch `main`**; integration descriptions deliberately do not use a closing keyword.
+6. Require up-to-date branches, disallow force pushes/deletions of `main` and `develop`, and require maintainer review for workflow/controller changes (for example with CODEOWNERS/rulesets). Cache uploads trust reviewed pushes on **both** long-lived branches, so both must be protected. The manual merge gate depends on repository rules, not PR prose. Tracking issues close through `Closes #N` when the release PR merges into default-branch `main`.
 
 GitHub references: [workflow triggers, schedules, and `workflow_run` security](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), [triggering workflows and token recursion rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), [job-scoped token permissions and `GH_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), [annotated tag objects and references](https://docs.github.com/en/rest/git/tags), and [`gh release create --verify-tag`](https://cli.github.com/manual/gh_release_create). Scheduled execution can be delayed; GitHub can disable public-repository schedules after 60 days without activity.
+
+#### Cachix CI setup and isolation
+
+The public cache `pd2-trader-flake` uses the public key documented above. **Before enabling uploads**, create the GitHub environment **`cachix-publish`** under Settings → Environments. Select **Selected branches and tags** and add only two **Branch** rules: exact `main` and exact `develop`. Do not allow tags, wildcard branches, release branches, or `refs/pull/*/merge`. Store a cache-specific write token as the environment secret **`CACHIX_AUTH_TOKEN`**. Both publishing jobs reference this environment. Required reviewers are optional; adding them makes each upload wait for approval.
+
+Remove any repository-level copy of `CACHIX_AUTH_TOKEN` and ensure no organization-level copy is accessible to this repository. A workflow `if` condition is not a secret-access boundary: a same-repository PR can edit that condition or reference a repository secret directly. If migrating the earlier repository-secret setup, create a replacement cache-specific token in Cachix, add it only to the restricted environment, revoke the old token, and delete the old repository secret. Never paste tokens into chat/logs, commit them, or pass them to build derivations. Verify the environment branch policies and secret scope in GitHub, then confirm PR refs are denied access during rollout; offline tests cannot establish remote settings. No paid upgrade is assumed or authorized. Check actual cache usage after rehearsal; eviction can turn a later hit into a build.
+
+Build jobs have no cache-write token. Successful protected `main`/`develop` push builds export the application/native/frontend closure as data, and a separate fresh runner imports it and uploads using trusted Cachix tooling. Ordinary PRs only read the public cache. For generated release candidates, **Cache validated generated update** independently validates the successful exact dispatch/attempt, current main parent, complete source tree/modes, and immutable artifact identity; it reconstructs the literal update from trusted main and evaluates expected store roots without executing candidate scripts. Only then does it import the NAR data and give the trusted client the write token. Merely matching an input-addressed store path is not sufficient to trust arbitrary PR outputs.
+
+Candidate application startup executes inside the Nix sandbox before artifact export. The privileged publication controller remains separate and never executes build artifacts. Protect both long-lived branches and review all workflow/controller changes; this cache architecture is not permission to run `pull_request_target` builds with secrets.
+
+Wait for the generated candidate's cache workflow to complete **before merging** if you want the merged-main run to reuse it. If main moves or the candidate merges before source authentication, cache publication fails closed; the subsequent protected main build can populate the cache instead. A cache upload failure is not evidence that the application failed its tests; investigate the relevant job and rerun after correcting permissions/service errors. Artifact retention is one day, so an old retry may require rerunning tokenless CI to recreate the transfer. No remote upload or client substitution is established by offline fixtures.
+
+Official references: [Cachix public cache configuration](https://docs.cachix.org/getting-started), [Nix substituters and trust](https://nix.dev/manual/nix/stable/command-ref/conf-file.html), [GitHub environment secret and branch restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments), and [GitHub artifact download](https://github.com/actions/download-artifact).
 
 #### Retry and recovery
 
 - **Open issue, missing/failed preparation:** fix the reported cause, then rerun preparation or the upstream checker; an open issue remains retryable on daily checks. Closing the issue deliberately dismisses the version. A failed build leaves its update PR open for a reviewed fix and another CI run. Do not close an issue merely to hide an automation error.
-- **Interrupted preparation:** an existing feature branch is reused, never overwritten. Its version, base, and allowed-file diff are checked before PR reuse; existing closed PRs stop for manual investigation rather than being silently reopened. A PR/dispatch failure after branch creation can be retried without regenerating hashes. After the version is already integrated into `develop`, rerun its exact merged CI/controller instead of regenerating the update.
-- **Concurrent or stale runs:** generation is serialized per version; short repository-write stages share `pd2-release-state`. Established GitHub concurrency keeps one pending run and can replace an older pending run during a burst (active runs are not canceled). Rerun a canceled pending preparation with the same inputs, or rerun the original exact-SHA CI to regenerate its completion event. A successful but superseded `develop` run is rejected rather than promoting newer untested code; test the current resulting integration commit and inspect its release eligibility. Existing release branches are never silently advanced. The current locked actionlint does not support the newer `queue: max` syntax, so these workflows deliberately retain the supported concurrency syntax rather than disabling lint.
-- **Frozen release branch:** preserve the tested snapshot; do not reset it to the latest `develop` or force-push it on a retry. If `main` advances and the release PR conflicts, resolve the conflict deliberately in the release branch, review the changed diff, and run CI again before merging. The resulting merged `main` SHA must pass its own push CI before publication.
+- **Interrupted preparation:** reuse an existing release branch only after independently checking its single-parent main ancestry, literal payload, complete Git trees and modes. Never overwrite it or reopen a deliberately closed PR. A failure after branch creation is retryable without regenerating hashes. If already merged, rerun the exact merged-main CI/controller instead of generating another PR.
+- **Concurrent or stale runs:** generation is serialized per version; short writers share `pd2-release-state`. GitHub's supported concurrency can replace an older pending run during bursts; rerun that preparation with the same inputs. SHA-scoped CI groups separate different heads. Stale generation or moved branches fail closed; no controller silently advances a frozen candidate.
+- **PR mirror timeout:** mirrors poll for up to 270 minutes (190-minute authoritative build plus a bounded queue allowance); PR jobs allow 300 minutes for setup and API overhead. Longer queues/service delays still fail closed. Rerun the mirror after recovering/completing the exact-head dispatch; do not treat its timeout as a successful build.
+- **Frozen release branch:** the candidate is one generated update commit atop its recorded main baseline. Manual extra commits, rebases, or conflict fixes may invalidate this strict provenance even if CI passes. If main moves incompatibly, stop for reviewed recovery rather than force-updating the branch or editing its marker. Close/dismiss obsolete candidates deliberately; a newer version can be prepared from current main. The resulting eligible main merge still requires its own successful CI.
 - **Tag created, release failed:** rerun the failed lifecycle job after correcting permissions or service errors. Reuse an existing annotated tag only after verifying its target matches the expected tested SHA. A conflicting tag is a hard stop for investigation, not permission to move/delete a published tag. Never remove `--verify-tag` to get around a failure. Verify the release readback before declaring success.
-- **Backmerge conflict or failed CI:** leave the backmerge PR open, resolve/review it, rerun CI, and merge manually. A successful release does not mean `develop` is synchronized.
+- **Development synchronization:** no automatic per-release backmerge is opened. Periodically merge released main changes into develop through a reviewed PR, and always account for them before promoting features. Publication does not imply develop has been synchronized.
 - **No lifecycle advancement:** inspect the CI run's event, branch, exact SHA, named job conclusion, merged PR state, and metadata before rerunning. Do not weaken the gates to compensate for a missing push run. Check Actions permissions, PR-creation policy, branch rules, dispatch inputs, and whether the workflows are on default-branch `main`.
 
 #### Local checks and rollout status
@@ -488,21 +532,23 @@ GitHub references: [workflow triggers, schedules, and `workflow_run` security](h
 The scripts use Node.js 24 and the checker has no npm dependencies. Run the offline lifecycle tests from this checkout:
 
 ```bash
-node --test tests/upstream-release.mjs tests/prepare-update.mjs tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs
+node --test tests/upstream-release.mjs tests/prepare-update.mjs tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs tests/cache-ci.mjs
 GITHUB_REPOSITORY=ohbe1jacobi/pd2-trader-flake node .github/scripts/check-upstream.mjs --dry-run
 ```
 
 `check-upstream --dry-run` uses `gh` to read releases and existing issues but does not create an issue or dispatch preparation. Authenticate `gh` for read-only local use; in Actions the job supplies `GH_TOKEN`. For manual packaging, change the literal version in `native-package.nix`, refresh and verify all affected fixed-output hashes using the pinned updater, update the README version, and follow the same PR/build/release gates; do not bypass them with an ad hoc tag.
 
-**Remote rehearsal is pending.** At the implementation checkpoint, only remote `main` was verified over HTTPS; SSH authentication was unavailable. This is not a claim that remote `develop`, branch protection, workflow dispatch, bot PR creation, either merged-commit gate, tag/release publication, or backmerge has been exercised successfully. Complete an authorized end-to-end remote rehearsal before relying on unattended operation; local tests alone cannot establish GitHub policy or token behavior.
+The original develop-based lifecycle was exercised for 0.10.10, including release publication and manual backmerge. **The revised direct-main lifecycle, Cachix publication/substitution, and CI mirror behavior require a new authorized remote rehearsal.** Offline fixtures are not real GitHub execution. Do not infer cache availability or ruleset compatibility from local tests alone.
 
 ### Checks
 
-GitHub Actions runs `.github/workflows/ci.yml` on pushes, pull requests, and manual dispatches. On an Ubuntu x86_64 runner it installs Nix, uses the committed lockfile without updating it, checks Nix formatting/package lint, builds the frontend and native application (including the native Cargo tests), runs all flake contracts and the development-shell test, and launches the isolated graphical startup test. Builds are sandboxed and serial to limit resource use. No deployment, profile installation, or desktop activation is performed.
+GitHub Actions runs `.github/workflows/ci.yml` for pushes to `main`/`develop`, PRs, and manual dispatches; feature pushes and tag pushes do not independently compile. Generated bot PR events mirror authoritative exact-head dispatches. Ubuntu x86_64 CI uses the committed lock, shared pre-commit checks, frontend Vitest/native Cargo builds, all flake contracts, and the development-shell test. Graphical startup runs inside a Nix sandbox through `checks.x86_64-linux.cache-smoke`. Builds are serial; no desktop activation or profile installation occurs. Nix may substitute previously checked outputs; that is not a fresh unit-test run. Locally, full checks are manual-only, never a pre-push compilation requirement.
 
 Regular `nix build` builds the frontend with checks enabled: upstream's `npm run test` runs Vitest once, with one worker to limit memory. A failing frontend test fails the build locally and in CI; the native Cargo tests remain enabled as well. To build and test only the frontend, run `nix build .#frontend`. Nix may reuse an already-built checked output rather than rerunning tests on every invocation.
 
 The graphical test checks startup and tray-library loading, not full game, OAuth, or real-desktop integration.
+
+After updating this checkout, re-enter `nix develop` to refresh its generated Git-hook configuration. Full checks remain available with `pre-commit run flake-check --hook-stage manual --all-files`; normal pushes no longer invoke that compilation hook. This does not cancel a build that was already started under the old configuration.
 
 ```bash
 nix flake check

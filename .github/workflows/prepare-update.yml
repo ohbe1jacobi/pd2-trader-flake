@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 # Serialize generation per version; only the short write job shares the
-# promotion lock. Canceled pending runs are safe to rerun (README recovery).
+# publication lock. Canceled pending runs are safe to rerun (README recovery).
 concurrency:
   group: pd2-prepare-${{ inputs.version }}
   cancel-in-progress: false
@@ -42,7 +42,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - id: plan
-        name: Validate upstream, issue and integration base
+        name: Validate upstream, issue and main baseline
         env:
           GH_TOKEN: ${{ github.token }}
           UPDATE_VERSION: ${{ inputs.version }}
@@ -68,7 +68,7 @@ jobs:
           ref: main
           path: control
           persist-credentials: false
-      - name: Check out exact integration base
+      - name: Check out exact main baseline
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.base }}
@@ -126,7 +126,7 @@ jobs:
           package-manager-cache: false
       # Treat generation output as untrusted text: validate the exact permitted
       # substitutions, construct a Git tree via gh, and never execute it here.
-      - name: Verify update payload, create or reuse integration PR, dispatch full CI
+      - name: Verify update payload, create or reuse release PR into main, dispatch full CI
         env:
           GH_TOKEN: ${{ github.token }}
           UPDATE_VERSION: ${{ inputs.version }}
