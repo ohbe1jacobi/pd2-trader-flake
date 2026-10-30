@@ -63,7 +63,7 @@ export async function checkUpstream({ version, repository, request, dryRun = fal
 - [ ] Update the documented packaged version.
 - [ ] Run formatting, build/tests, flake contracts, and graphical startup checks.
 
-Preparation is explicitly dispatched for this open issue. Closing the issue dismisses this version; reopen it deliberately to retry. Integration into develop keeps this issue open; the release PR into default-branch main closes it after manual approval.
+Preparation is explicitly dispatched for this open issue. Closing the issue dismisses this version; reopen it deliberately to retry. A frozen release/<version> branch starts from main; its single PR into main closes this issue after manual approval. Publication waits for successful CI on the exact merged main commit.
 `;
   if (dryRun) return { status: matches.length ? 'would-dispatch' : 'would-create', version: nextVersion, issue: matches[0]?.number, title, body };
   const issue = matches[0] ?? await request(`/repos/${repository}/issues`, { method: 'POST', body: { title, body } });
@@ -84,7 +84,14 @@ export function createRequest(run = spawnSync) {
     const args = ['api', path, '--method', method, '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28'];
     if (body !== undefined) args.push('--input', '-');
     const result = run('gh', args, { encoding: 'utf8', input: body === undefined ? undefined : JSON.stringify(body), timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
-    if (result.error || result.status !== 0) throw new Error(`GitHub API ${method} ${path}: ${result.error?.message ?? result.stderr}`);
+    if (result.error || result.status !== 0) {
+      const error = new Error(`GitHub API ${method} ${path}: ${result.error?.message ?? result.stderr}`);
+      // gh's HTTP suffix is transport evidence; never infer absence from a
+      // generic message, JSON body, spawn error, or arbitrary occurrence of 404.
+      const status = !result.error && /(?:^HTTP |\(HTTP )(\d{3})\)?\s*$/.exec(result.stderr ?? '');
+      if (status) error.status = Number(status[1]);
+      throw error;
+    }
     // gh owns authentication, HTTP errors and API version handling. Dispatch
     // succeeds with 204 and no JSON; it must not turn into a false failure.
     return result.stdout?.trim() ? JSON.parse(result.stdout) : null;

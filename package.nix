@@ -14,6 +14,8 @@ let
     (lib.getLib gst_all_1.gstreamer)
     gst_all_1.gst-plugins-base
     gst_all_1.gst-plugins-good
+    # WebKit probes fakevideosink and webvttenc for video/subtitle handling.
+    gst_all_1.gst-plugins-bad
   ];
 in
 symlinkJoin {

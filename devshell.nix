@@ -47,7 +47,7 @@ pkgs.mkShell {
       desktop-file-utils
     ]);
 
-  # The generated configuration installs pre-commit, commit-msg, and pre-push
+  # The generated configuration installs pre-commit and commit-msg
   # hooks on entry. CI/read-only tooling can opt out without weakening checks.
   shellHook = ''
     if [ "''${PD2_TRADER_NO_HOOKS:-0}" != 1 ]; then
