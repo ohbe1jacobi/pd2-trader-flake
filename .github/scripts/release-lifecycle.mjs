@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { createRequest, readPinnedVersion } from './check-upstream.mjs';
+import { compareVersions, createRequest, readPinnedVersion } from './check-upstream.mjs';
 import { validateGeneratedUpdate } from './prepare-update.mjs';
 
 export function version(value) {
@@ -105,6 +105,26 @@ export async function publish({ request, repository, version: v, commit, notes, 
   version(v); sha(commit);
   const tag = `v${v}`;
   const title = `PD2 Trader ${v}`;
+  const findLatest = async () => {
+    try { return await request(`/repos/${repository}/releases/latest`); }
+    catch (error) { if (error.status === 404) return null; throw error; }
+  };
+  const stableVersion = release => release?.draft === false && release.prerelease === false &&
+    /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(release.tag_name ?? '') ? release.tag_name.slice(1) : null;
+  // Shared workflow concurrency serializes automated publishers. Recheck live
+  // main and every release page before writing; an older rerun must not demote
+  // a newer release, even when that newer release is not designated Latest.
+  const publicationState = async () => {
+    const main = await getRef(request, repository, 'heads', 'main');
+    if (await pinnedAt(request, repository, sha(main?.object?.sha)) !== v) return { eligible: false };
+    const releases = await pages(request, `/repos/${repository}/releases`);
+    if (releases.some(item => stableVersion(item) && compareVersions(stableVersion(item), v) > 0)) return { eligible: false };
+    const latest = await findLatest();
+    if (latest && !stableVersion(latest)) throw new Error('Unrelated or invalid Latest release; manual recovery required');
+    if (latest && compareVersions(stableVersion(latest), v) > 0) return { eligible: false };
+    return { eligible: true, latest };
+  };
+  if (!(await publicationState()).eligible) return null;
   let ref = await getRef(request, repository, 'tags', tag);
   if (!ref) {
     const object = await request(`/repos/${repository}/git/tags`, {
@@ -123,9 +143,13 @@ export async function publish({ request, repository, version: v, commit, notes, 
     catch (error) { if (error.status === 404) return null; throw error; }
   };
   let release = await findRelease();
+  const existing = Boolean(release);
   if (!release) {
+    // Tag lookup/creation can take time. Guard the Latest-changing command
+    // itself, not only entry to publish() or its eventual readback.
+    if (!(await publicationState()).eligible) return null;
     const result = runCommand('gh', ['release', 'create', tag, '--repo', repository,
-      '--verify-tag', '--title', title, '--notes', notes, '--latest=false'], { encoding: 'utf8' });
+      '--verify-tag', '--title', title, '--notes', notes, '--latest=true'], { encoding: 'utf8' });
     if (result.error || result.status !== 0) throw new Error(`Release publication failed: ${result.error?.message ?? result.stderr}`);
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await delay(1000 * 2 ** (attempt - 1));
@@ -144,9 +168,44 @@ export async function publish({ request, repository, version: v, commit, notes, 
   if (release.prerelease !== false) mismatches.push('prerelease');
   if (!release.body?.startsWith(`Nix packaging for upstream PD2 Trader ${v}.`) || !release.body.includes(commit)) mismatches.push('body');
   if (mismatches.length) throw new Error(`Release readback mismatch (${tag}): ${mismatches.join(', ')}`);
+  if (existing && release.body !== notes) {
+    const evidence = body => [...(body ?? '').matchAll(/^CI: (https:\/\/github.com\/[^/\s]+\/[^/\s]+\/actions\/runs\/([1-9]\d*)\/attempts\/([1-9]\d*))$/gm)];
+    const original = evidence(release.body), expected = evidence(notes);
+    if (original.length !== 1 || expected.length !== 1 ||
+        !original[0][1].startsWith(`https://github.com/${repository}/actions/runs/`) ||
+        release.body.replace(original[0][0], 'CI: <verified-run>') !== notes.replace(expected[0][0], 'CI: <verified-run>')) {
+      throw new Error('Release provenance mismatch; manual recovery required');
+    }
+    // Preserve legitimate original-attempt notes on retries, but independently
+    // verify their exact merged-main CI attempt before authorizing promotion.
+    const id = Number(original[0][2]), attempt = Number(original[0][3]);
+    if (!Number.isSafeInteger(id) || !Number.isSafeInteger(attempt)) throw new Error('Invalid release CI provenance');
+    const workflow = await request(`/repos/${repository}/actions/workflows/ci.yml`);
+    const run = await request(`/repos/${repository}/actions/runs/${id}/attempts/${attempt}`);
+    validateRun({ id, run_attempt: attempt, head_sha: commit }, run, workflow.id, repository);
+    await successfulJobs(request, repository, run);
+  }
   const publishedRef = await getRef(request, repository, 'tags', tag);
   if (publishedRef?.object.type !== 'tag' || publishedRef.object.sha !== ref.object.sha) throw new Error('Published tag target changed');
-  return release;
+  if (!Number.isSafeInteger(release.id) || release.id < 1) throw new Error('Invalid release ID');
+  const isLatest = latest => latest?.id === release.id && latest.tag_name === tag &&
+    latest.name === title && latest.draft === false && latest.prerelease === false && latest.body === release.body;
+  const current = await publicationState();
+  if (!current.eligible) return null;
+  if (current.latest?.tag_name === tag && !isLatest(current.latest)) throw new Error(`Latest release readback mismatch: ${tag}`);
+  if (existing && !isLatest(current.latest)) {
+    await request(`/repos/${repository}/releases/${release.id}`, { method: 'PATCH', body: { make_latest: 'true' } });
+  }
+  let latest;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await delay(1000 * 2 ** (attempt - 1));
+    try { latest = await findLatest(); }
+    catch (error) {
+      if (![429, 500, 502, 503, 504].includes(error.status) || attempt === 2) throw error;
+    }
+    if (isLatest(latest)) return release;
+  }
+  throw new Error(`Latest release readback mismatch: ${tag}`);
 }
 
 async function successfulJobs(request, repository, run) {
@@ -245,6 +304,7 @@ export async function completeCI({ eventRun, repository, request, runCommand }) 
   if (!['ahead', 'identical'].includes(comparison.status)) throw new Error('Tested commit is not on main');
   const notes = `Nix packaging for upstream PD2 Trader ${v}.\n\nTracking issue: https://github.com/${repository}/issues/${issue}\nRelease PR: https://github.com/${repository}/pull/${pr.number}\nCI: ${ciURL}\n\nExisting build-and-test CI succeeded on merged main commit ${commit}, including its Nix application build, integration contracts, development shell and isolated startup steps. Cached Nix outputs may be reused; this is not a reproducibility or complete game/OAuth/audio integration claim.`;
   const release = await publish({ request, repository, version: v, commit, notes, runCommand });
+  if (!release) return { status: 'superseded', commit };
   return { status: 'published', commit, release: release.html_url };
 }
 
