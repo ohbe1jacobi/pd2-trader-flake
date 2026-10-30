@@ -51,12 +51,27 @@
       };
       overlays.default = final: prev: { pd2-trader = final.callPackage ./package.nix { }; };
       devShells.${system}.default = devShell;
-      homeManagerModules.pd2-trader = import ./modules/home-manager.nix;
+      # Export cache-compatible defaults without changing direct module-file imports.
+      homeManagerModules.pd2-trader =
+        { lib, ... }:
+        {
+          imports = [ ./modules/home-manager.nix ];
+          programs.pd2-trader.package = lib.mkDefault package;
+        };
       homeManagerModules.default = self.homeManagerModules.pd2-trader;
-      nixosModules.pd2-trader = import ./modules/nixos.nix;
+      nixosModules.pd2-trader =
+        { lib, ... }:
+        {
+          imports = [ ./modules/nixos.nix ];
+          programs.pd2-trader.package = lib.mkDefault package;
+        };
       nixosModules.default = self.nixosModules.pd2-trader;
       checks.${system} = {
         pre-commit = preCommitCheck;
+        module-packages = import ./tests/module-packages.nix {
+          inherit pkgs nixpkgs home-manager;
+          flake = self;
+        };
         cache-smoke = import ./tests/cache-smoke.nix { inherit pkgs package; };
         cache-ci =
           pkgs.runCommand "pd2-trader-cache-ci-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
