@@ -155,7 +155,7 @@ test('cache artifact runtime updates preserve exact-run transfer and extraction 
   }
 });
 
-test('flake advertises the verified public cache without changing module defaults or lock', () => {
+test('flake advertises the verified public cache and includes cache contracts', () => {
   const flake = read('flake.nix');
   assert.match(flake, /extra-substituters = \[ "https:\/\/pd2-trader-flake.cachix.org" \];/);
   assert.ok(flake.includes('pd2-trader-flake.cachix.org-1:rg+7WukdJd8/1+Ky8c7kUHivrvfcmOPVlGUxz4CqLM4='));
