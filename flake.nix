@@ -74,8 +74,11 @@
           pkgs.runCommand "pd2-trader-dependency-graph-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
             ''
               mkdir -p .github/scripts .github/workflows tests
+              cp ${./.github/dependabot.yml} .github/dependabot.yml
               cp ${./.github/scripts/flake-lock-sbom.mjs} .github/scripts/flake-lock-sbom.mjs
               cp ${./.github/scripts/prepare-nix-sbom.mjs} .github/scripts/prepare-nix-sbom.mjs
+              cp ${./.github/scripts/cache-ci.mjs} .github/scripts/cache-ci.mjs
+              cp ${./.github/workflows/ci.yml} .github/workflows/ci.yml
               cp ${./.github/workflows/dependency-graph.yml} .github/workflows/dependency-graph.yml
               cp ${./tests/dependency-graph.mjs} tests/dependency-graph.mjs
               cp ${./flake.lock} flake.lock

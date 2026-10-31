@@ -66,7 +66,7 @@
       enable = true;
       name = "Offline Nix dependency graph contracts";
       entry = "${pkgs.nodejs}/bin/node --test tests/dependency-graph.mjs";
-      files = "^(\\.github/(scripts/(flake-lock-sbom|prepare-nix-sbom)\\.mjs|workflows/dependency-graph\\.yml)|tests/dependency-graph\\.mjs|flake\\.(nix|lock)|git-hooks\\.nix)$";
+      files = "^(\\.github/(dependabot\\.yml|scripts/(flake-lock-sbom|prepare-nix-sbom|cache-ci)\\.mjs|workflows/(dependency-graph|ci)\\.yml)|tests/dependency-graph\\.mjs|flake\\.(nix|lock)|git-hooks\\.nix)$";
       pass_filenames = false;
     };
     flake-check = {
