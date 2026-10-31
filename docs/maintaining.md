@@ -9,6 +9,7 @@
 - [Repository setup and trust boundary](#repository-setup-and-trust-boundary)
 - [Cachix CI setup and isolation](#cachix-ci-setup-and-isolation)
 - [Nix dependency graph](#nix-dependency-graph)
+- [Weekly flake updates](#weekly-flake-updates)
 - [Retry and recovery](#retry-and-recovery)
 - [Local checks and rollout status](#local-checks-and-rollout-status)
 
@@ -84,7 +85,7 @@ Cargo lockfiles are parsed or copied into this repository. Nix derivations for
 frontend/vendor builds can appear, but their individual npm/crate dependencies
 are not enumerated. GitHub Actions references remain GitHub's native inventory.
 Nix package URLs provide visibility, not a promise of Dependabot vulnerability
-coverage or automatic Nix updates.
+coverage. Automatic Nix updates are configured separately below.
 
 Generation has only `contents: read`; PRs and feature-branch dispatches only
 upload downloadable `nix-dependency-sboms-<attempt>` artifacts (seven-day retention).
@@ -124,6 +125,41 @@ retained. An expired artifact needs a full rerun; an old main SHA is deliberatel
 rejected, so dispatch the workflow on current `main` instead. This reporting
 workflow is separate from the release-authorizing **Build and test** workflow
 and does not change its required-check or publication gates.
+
+### Weekly flake updates
+
+`.github/dependabot.yml` uses Dependabot's native Nix-flake support to check
+inputs weekly on **Monday at 06:43 UTC**. Updates are grouped into one
+`flake-inputs` PR targeting **`main`**, with at most one open version-update PR.
+The existing input release branches in `flake.nix` remain the update policy;
+this is not an automatic switch to unstable or a new NixOS release.
+Explicit `ignore` version ceilings prevent Dependabot from proposing newer
+NixOS/Home Manager release branches. Update both ceilings deliberately when
+changing the stable release in `flake.nix`.
+
+This maintains the currently shipped application, independently of upstream
+application-version updates. The PR uses ordinary full build/test CI, including
+Vitest, Cargo, integration contracts, and isolated graphical startup. Changed
+inputs rebuild affected derivations as needed; unchanged store paths may be
+substituted. Do not refresh source/npm/Cargo hashes merely because the Nix inputs
+changed: investigate any fixed-output failure instead of masking it.
+
+Review the lockfile diff and require green CI before manually merging. There is
+no auto-merge or new cache-write permission. After merge, existing trusted-main
+push CI builds/tests the merged revision and publishes its application closure
+to Cachix. Existing upstream version tags remain immutable; a lockfile-only PR
+does not authorize retagging or creating another upstream application release.
+Synchronize the maintained main revision into `develop` deliberately as usual.
+
+Land this configuration on default-branch `main` to enable scheduled updates.
+Repository policy must allow Dependabot and its PR workflows. No PAT or extra
+secret is required. Dependabot PR CI runs read-only and must not need protected
+cache-upload secrets. Inspect update jobs under **Insights → Dependency graph →
+Dependabot**; the configured time is a schedule, not a guaranteed start time.
+Local contract tests do not establish that a hosted update job has run.
+
+References: [GitHub's Nix support announcement](https://github.blog/changelog/2026-04-07-dependabot-version-updates-now-support-the-nix-ecosystem/)
+and [Dependabot configuration options](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
 
 ### Retry and recovery
 

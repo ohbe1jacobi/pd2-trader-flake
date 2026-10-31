@@ -4,6 +4,39 @@ import { test } from 'node:test';
 
 const pinned = JSON.parse(readFileSync(new URL('../flake.lock', import.meta.url), 'utf8'));
 
+test('weekly Nix updates maintain the shipped version through reviewed main PRs and full CI', () => {
+  const config = readFileSync(new URL('../.github/dependabot.yml', import.meta.url), 'utf8');
+  assert.match(config, /^version: 2$/m);
+  assert.deepEqual([...config.matchAll(/package-ecosystem: "([^"]+)"/g)].map(match => match[1]), ['nix']);
+  for (const setting of [
+    '    directory: "/"',
+    '    target-branch: "main"',
+    '      interval: "weekly"',
+    '      day: "monday"',
+    '      time: "06:43"',
+    '      timezone: "Etc/UTC"',
+    '    open-pull-requests-limit: 1',
+    '      prefix: "build"',
+    '      include: "scope"',
+    '      flake-inputs:',
+    '        applies-to: version-updates',
+    '        patterns: ["*"]',
+    '      - dependency-name: "nixpkgs"',
+    '      - dependency-name: "home-manager"',
+  ]) assert.ok(config.split('\n').includes(setting), `Missing Dependabot policy: ${setting}`);
+  const ceiling = `        versions: ["> ${pinned.nodes.nixpkgs.original.ref.slice('nixos-'.length)}"]`;
+  assert.equal(config.split('\n').filter(line => line === ceiling).length, 2,
+    'Block release-branch upgrades for both stable inputs, not same-branch revision updates');
+  assert.doesNotMatch(config, /registries:|insecure-external-code-execution:|enable-beta-ecosystems:/);
+
+  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.match(ci, /\n  pull_request:\n/);
+  assert.match(ci, /Build application, including Vitest and Rust tests/);
+  assert.match(ci, /Run all flake integration contracts/);
+  // Dependabot must build normally, not wait for the release bot's dispatch.
+  assert.doesNotMatch(readFileSync(new URL('../.github/scripts/cache-ci.mjs', import.meta.url), 'utf8'), /dependabot\[bot\]/);
+});
+
 test('flake inputs retain exact revisions, transitive edges and follows without duplicates', async () => {
   const { lockToSpdx } = await import('../.github/scripts/flake-lock-sbom.mjs');
   const sbom = lockToSpdx(pinned);
