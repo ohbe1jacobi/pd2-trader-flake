@@ -109,6 +109,7 @@ Before reporting completion, state which checks actually ran, whether a native s
 Use upstream application versions to identify packaging milestones. Follow these formats:
 
 - Routine upstream version bumps branch from `main` as `release/<version>` and open one manually reviewed PR into `main`. They do not pass through `develop`; reserve `develop` for packaging/features and synchronize released changes deliberately before a feature release.
+- Weekly flake-input maintenance also targets `main` through a manually reviewed Dependabot PR so the currently shipped application is rebuilt/tested against refreshed inputs. Keep the NixOS/Home Manager release ceilings in `.github/dependabot.yml` aligned with the deliberate stable release in `flake.nix`. Lockfile-only maintenance does not authorize moving version tags or publishing another upstream application release.
 - Publish only after successful CI on the eligible release PR's exact merged `main` commit. A branch-latest green run, feature PR, or version-looking title alone is not publication authority. Do not automatically merge or open a per-version backmerge PR just to equalize branch counters.
 - For releases and synchronization between long-lived branches, use merge commits to preserve ancestry. Squashing copies changes without making the source commits ancestors; ahead/behind counts are not file-content comparisons.
 

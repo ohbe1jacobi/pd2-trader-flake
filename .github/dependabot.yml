@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Refresh flake.lock within the release branches declared in flake.nix.
+  # Maintain the currently shipped application on main; keep manual review.
+  - package-ecosystem: "nix"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:43"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 1
+    # Dependabot can also propose newer NixOS/HM release branches. Keep those
+    # upgrades deliberate while still advancing revisions on the current ones.
+    ignore:
+      - dependency-name: "nixpkgs"
+        versions: ["> 26.05"]
+      - dependency-name: "home-manager"
+        versions: ["> 26.05"]
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      flake-inputs:
+        applies-to: version-updates
+        patterns: ["*"]
