@@ -62,6 +62,13 @@
       files = "^(\\.github/(scripts/(cache-|update-integration\\.mjs)|workflows/(ci|cache-generated|prepare-update)\\.yml)|tests/cache-ci\\.mjs$|flake\\.nix$|git-hooks\\.nix$)";
       pass_filenames = false;
     };
+    dependency-graph = {
+      enable = true;
+      name = "Offline Nix dependency graph contracts";
+      entry = "${pkgs.nodejs}/bin/node --test tests/dependency-graph.mjs";
+      files = "^(\\.github/(scripts/(flake-lock-sbom|prepare-nix-sbom)\\.mjs|workflows/dependency-graph\\.yml)|tests/dependency-graph\\.mjs|flake\\.(nix|lock)|git-hooks\\.nix)$";
+      pass_filenames = false;
+    };
     flake-check = {
       enable = true;
       name = "Nix flake checks (including application build and tests)";

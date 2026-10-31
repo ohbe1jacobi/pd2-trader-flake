@@ -1,0 +1,112 @@
+name: Nix dependency graph
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-dependency-graph-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate Nix dependency inventories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PD2_TRADER_NO_HOOKS: "1"
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            max-jobs = 1
+            cores = 1
+
+      - name: Test inventory adapters and workflow boundaries
+        run: node --test tests/dependency-graph.mjs
+
+      - name: Generate package and locked-input SPDX inventories
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nix-sboms"
+          sbomnix=$(nix build .#sbomnix --no-link --no-update-lock-file --print-out-paths)
+          drv=$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.default.drvPath)
+          "$sbomnix/bin/sbomnix" "$drv" \
+            --buildtime --exclude-meta --exclude-cpe-matching \
+            --cdx '' --csv '' --spdx "$RUNNER_TEMP/nix-build.raw.json"
+          node .github/scripts/prepare-nix-sbom.mjs \
+            "$RUNNER_TEMP/nix-build.raw.json" "$RUNNER_TEMP/nix-sboms/package.spdx.json"
+          node .github/scripts/flake-lock-sbom.mjs \
+            flake.lock "$RUNNER_TEMP/nix-sboms/inputs.spdx.json"
+
+      - name: Preserve inventories for review and isolated submission
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nix-dependency-sboms-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nix-sboms/*.spdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  submit:
+    name: Submit trusted main dependency graph
+    needs: generate
+    # Feature dispatches and PRs produce artifacts only. No candidate evaluation
+    # or application execution on the fresh runner that receives a write token.
+    if: github.repository == 'ohbe1jacobi/pd2-trader-flake' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Reject a stale main rerun
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          [[ "$current_sha" == "$EXPECTED_SHA" ]]
+
+      - name: Download only this generation job's immutable artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.generate.outputs.artifact-id }}
+          path: nix-sboms
+          merge-multiple: true
+
+      - name: Submit locked flake inputs
+        uses: advanced-security/spdx-dependency-submission-action@b009efcf8b9d562a4569d2028c276522232e631f # v0.4.0, Node.js 24
+        with:
+          token: ${{ github.token }}
+          filePath: nix-sboms
+          filePattern: inputs.spdx.json
+          manifestPath: flake.lock
+          correlator: nix-flake-inputs
+
+      - name: Submit Nix package build dependencies
+        uses: advanced-security/spdx-dependency-submission-action@b009efcf8b9d562a4569d2028c276522232e631f # v0.4.0, Node.js 24
+        with:
+          token: ${{ github.token }}
+          filePath: nix-sboms
+          filePattern: package.spdx.json
+          manifestPath: native-package.nix
+          correlator: nix-package-x86_64-linux
