@@ -8,6 +8,7 @@
 - [Workflows and review gates](#workflows-and-review-gates)
 - [Repository setup and trust boundary](#repository-setup-and-trust-boundary)
 - [Cachix CI setup and isolation](#cachix-ci-setup-and-isolation)
+- [Nix dependency graph](#nix-dependency-graph)
 - [Retry and recovery](#retry-and-recovery)
 - [Local checks and rollout status](#local-checks-and-rollout-status)
 
@@ -52,6 +53,77 @@ Candidate application startup executes inside the Nix sandbox before artifact ex
 Wait for the generated candidate's cache workflow to complete **before merging** if you want the merged-main run to reuse it. If main moves or the candidate merges before source authentication, cache publication fails closed; the subsequent protected main build can populate the cache instead. A cache upload failure is not evidence that the application failed its tests; investigate the relevant job and rerun after correcting permissions/service errors. Artifact retention is one day, so an old retry may require rerunning tokenless CI to recreate the transfer. No remote upload or client substitution is established by offline fixtures.
 
 Official references: [Cachix public cache configuration](https://docs.cachix.org/getting-started), [Nix substituters and trust](https://nix.dev/manual/nix/stable/command-ref/conf-file.html), [GitHub environment secret and branch restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments), and [GitHub artifact download](https://github.com/actions/download-artifact).
+
+### Nix dependency graph
+
+`.github/workflows/dependency-graph.yml` reuses [sbomnix](https://github.com/tiiuae/sbomnix)
+from the committed nixpkgs input and the [SPDX Dependency Submission Action](https://github.com/advanced-security/spdx-dependency-submission-action),
+which is listed in [GitHub's dependency submission documentation](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/use-dependency-submission-api).
+The submission action is pinned by full commit and uses Node.js 24. No extra
+flake input, npm dependencies, PAT, or new service is required.
+
+Two inventories are generated on PRs, pushes to `main`, and manual dispatches:
+
+- **`flake.lock`:** exact locked GitHub revisions, including transitive inputs
+  and resolved `follows` edges. A small SPDX adapter handles this lockfile-only
+  layer; unsupported source types or malformed pins fail rather than silently
+  producing an incomplete inventory. It does not update the lockfile.
+- **`native-package.nix`:** sbomnix's complete build-time derivation dependency
+  graph for `packages.x86_64-linux.default`, including Nix libraries, compilers,
+  build tools, bootstrap components, and the packaging targets. This is **not**
+  a measured runtime-only closure or an inventory of every dev-shell tool.
+  Evaluation does not compile the application. Source fetching derivations and
+  unversioned artifacts without package URLs are excluded from submission;
+  dependency paths through them are retained. A small adapter gives sbomnix's
+  root the identifier expected by the submission action so direct dependencies
+  are recognized, and handles a percent-encoded `+` compatibility issue in the
+  pinned submission toolkit. Inventory root packages may also appear in the graph.
+
+**Upstream application lockfile scanning is deliberately excluded.** No npm or
+Cargo lockfiles are parsed or copied into this repository. Nix derivations for
+frontend/vendor builds can appear, but their individual npm/crate dependencies
+are not enumerated. GitHub Actions references remain GitHub's native inventory.
+Nix package URLs provide visibility, not a promise of Dependabot vulnerability
+coverage or automatic Nix updates.
+
+Generation has only `contents: read`; PRs and feature-branch dispatches only
+upload downloadable `nix-dependency-sboms-<attempt>` artifacts (seven-day retention).
+A separate fresh runner with `contents: write` submits only this run's immutable
+artifact ID on this repository's `main` push/manual dispatch. It rejects stale
+main SHAs and never checks out/evaluates candidate code or runs application
+artifacts. It uses the built-in `GITHUB_TOKEN`, with separate stable correlators
+for the two manifests. No `pull_request_target` or privileged `workflow_run`
+handoff is involved. Keep workflow changes under human review and protect main.
+
+**One-time setup:** a repository administrator must enable **Dependency graph**
+under **Settings → Advanced Security** (the section can be named **Code security**).
+Public repositories normally have it enabled. Organization policy must permit
+the pinned actions and the job's `contents: write` permission. Do not broaden
+the ordinary build job's token permissions or create a PAT for this workflow.
+After landing on `main`, check **Actions → Nix dependency graph**, then
+**Insights → Dependency graph → Dependencies** for both submitted manifests.
+Dependency graph ingestion may lag the API acceptance. A successful local SBOM
+generation does not prove the remote graph is enabled or populated.
+
+Local inspection (writes only beneath a disposable directory):
+
+```bash
+node --test tests/dependency-graph.mjs
+report_dir=$(mktemp -d)
+sbomnix=$(nix build .#sbomnix --no-link --no-update-lock-file --print-out-paths)
+drv=$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.default.drvPath)
+"$sbomnix/bin/sbomnix" "$drv" --buildtime --exclude-meta --exclude-cpe-matching \
+  --cdx '' --csv '' --spdx "$report_dir/raw.json"
+node .github/scripts/prepare-nix-sbom.mjs "$report_dir/raw.json" "$report_dir/package.spdx.json"
+node .github/scripts/flake-lock-sbom.mjs flake.lock "$report_dir/inputs.spdx.json"
+```
+
+No submission runs locally. For a failed main submission, fix repository policy
+or service errors and rerun the failed job while its generation artifact is
+retained. An expired artifact needs a full rerun; an old main SHA is deliberately
+rejected, so dispatch the workflow on current `main` instead. This reporting
+workflow is separate from the release-authorizing **Build and test** workflow
+and does not change its required-check or publication gates.
 
 ### Retry and recovery
 

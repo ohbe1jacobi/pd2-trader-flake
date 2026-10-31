@@ -37,6 +37,8 @@
         pd2-trader = package;
         default = package;
         frontend = package.frontend;
+        # Inventory tooling follows the committed nixpkgs pin, not a new input.
+        sbomnix = pkgs.sbomnix;
         # Maintainer tooling uses the same locked package set, with nix-update
         # pinned independently to the revision verified for the native target.
         nix-update = automationTools.nix-update;
@@ -68,6 +70,18 @@
       nixosModules.default = self.nixosModules.pd2-trader;
       checks.${system} = {
         pre-commit = preCommitCheck;
+        dependency-graph =
+          pkgs.runCommand "pd2-trader-dependency-graph-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
+            ''
+              mkdir -p .github/scripts .github/workflows tests
+              cp ${./.github/scripts/flake-lock-sbom.mjs} .github/scripts/flake-lock-sbom.mjs
+              cp ${./.github/scripts/prepare-nix-sbom.mjs} .github/scripts/prepare-nix-sbom.mjs
+              cp ${./.github/workflows/dependency-graph.yml} .github/workflows/dependency-graph.yml
+              cp ${./tests/dependency-graph.mjs} tests/dependency-graph.mjs
+              cp ${./flake.lock} flake.lock
+              node --test tests/dependency-graph.mjs
+              touch "$out"
+            '';
         module-packages = import ./tests/module-packages.nix {
           inherit pkgs nixpkgs home-manager;
           flake = self;
