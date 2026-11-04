@@ -2,9 +2,10 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // This is only build deduplication, never authority to publish cache contents.
-export function automationHead(event, repository) {
+export function automationHead(event, repository, appSlug) {
   const pr = event.pull_request;
-  const bot = user => user?.login === 'github-actions[bot]' && user.type === 'Bot';
+  const appLogin = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(appSlug ?? '') ? `${appSlug}[bot]` : null;
+  const bot = user => user?.type === 'Bot' && (user.login === 'github-actions[bot]' || (appLogin !== null && user.login === appLogin));
   if (!['opened', 'synchronize'].includes(event.action) || !bot(event.sender) || !bot(pr?.user) ||
       pr.head?.repo?.full_name !== repository || pr.base?.repo?.full_name !== repository) return null;
   const markers = [...(pr.body ?? '').matchAll(/<!-- pd2-update:([0-9]+\.[0-9]+\.[0-9]+):([1-9][0-9]*) -->/g)];
@@ -52,7 +53,7 @@ export async function mirrorDispatch({ repository, head, branch, token, request 
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-  const head = process.env.GITHUB_EVENT_NAME === 'pull_request' ? automationHead(event, process.env.GITHUB_REPOSITORY) : null;
+  const head = process.env.GITHUB_EVENT_NAME === 'pull_request' ? automationHead(event, process.env.GITHUB_REPOSITORY, process.env.UPDATE_APP_SLUG) : null;
   if (process.argv.includes('--mirror')) {
     if (!head) throw new Error('Not an eligible automation event');
     await mirrorDispatch({ repository: process.env.GITHUB_REPOSITORY, head, branch: event.pull_request.head.ref, token: process.env.GH_TOKEN });

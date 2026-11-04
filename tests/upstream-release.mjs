@@ -123,6 +123,19 @@ test('the gh adapter uses arguments and JSON stdin, handles empty replies, and p
   await assert.rejects(checker.createRequest(() => ({ status: 0, stdout: 'not JSON' }))('/repos/x/y'), /JSON/);
 });
 
+test('the gh adapter scopes an explicit token to its child process only', async () => {
+  const inherited = process.env.GH_TOKEN;
+  let child;
+  const request = checker.createRequest((command, args, options) => {
+    child = { command, args, options };
+    return { status: 0, stdout: '{}', stderr: '' };
+  }, { token: 'test-installation-token' });
+  await request('/repos/owner/repo/pulls');
+  assert.equal(child.options.env.GH_TOKEN, 'test-installation-token');
+  assert.equal(process.env.GH_TOKEN, inherited);
+  assert.ok(!child.args.includes('test-installation-token'));
+});
+
 test('API lookup failures propagate without creating an issue', async () => {
   await assert.rejects(checkUpstream({
     version: '0.10.9', repository: 'owner/package',

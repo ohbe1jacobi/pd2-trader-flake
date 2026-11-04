@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { planUpdate, finishUpdate, validatePayload } from '../.github/scripts/update-integration.mjs';
 const commit = 'a'.repeat(40);
 const repository = 'owner/repo';
@@ -86,6 +87,42 @@ test('reused release branch validates contents, not just filenames, before PR wr
     return original(path, options);
   };
   await assert.rejects(finishUpdate({ request, repository, version: '0.10.10', issue: '42', base: commit }), /Native changes/);
+});
+
+test('the integration CLI refuses a missing App token before making API requests', () => {
+  const result = spawnSync(process.execPath, [new URL('../.github/scripts/update-integration.mjs', import.meta.url).pathname], {
+    encoding: 'utf8', env: { GITHUB_REPOSITORY: 'ohbe1jacobi/pd2-trader-flake', GITHUB_REF: 'refs/heads/main', GH_TOKEN: 'test-controller-token' },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /GH_PR_TOKEN installation token is required/);
+  assert.doesNotMatch(result.stderr, /ENOENT|GitHub API/);
+});
+
+test('PR creation and readback use only the separate App request while CI keeps the controller request', async () => {
+  const { request: original } = fixture(true);
+  let pr, dispatches = 0, prWrites = 0;
+  const request = async (path, options = {}) => {
+    assert.ok(!path.includes('/pulls'), 'PR operations must not use the controller token');
+    if (path.includes('/compare/')) return { merge_base_commit: { sha: commit }, files: [{ filename: 'native-package.nix', status: 'modified' }, { filename: 'README.md', status: 'modified' }] };
+    if (path.endsWith('/dispatches')) { dispatches++; return null; }
+    return original(path, options);
+  };
+  const prRequest = async (path, options = {}) => {
+    assert.ok(path.includes('/pulls'), 'App token must only handle PR operations');
+    if (path.includes('/pulls?')) return pr ? [pr] : [];
+    if (path.endsWith('/pulls') && options.method === 'POST') {
+      prWrites++;
+      pr = { ...options.body, number: 4, state: 'open', head: { ref: options.body.head, repo: { full_name: repository } }, base: { ref: options.body.base } };
+      return pr;
+    }
+    if (path.endsWith('/pulls/4')) return pr;
+    assert.fail(`Unexpected App request ${path}`);
+  };
+  const input = { request, prRequest, repository, version: '0.10.10', issue: '42', base: commit };
+  assert.equal((await finishUpdate(input)).pr, 4);
+  assert.equal((await finishUpdate(input)).pr, 4);
+  assert.equal(prWrites, 1);
+  assert.equal(dispatches, 2);
 });
 
 test('interrupted update retries branch/PR/CI handoff without regenerating or overwriting a branch', async () => {

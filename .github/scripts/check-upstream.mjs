@@ -78,12 +78,14 @@ Preparation is explicitly dispatched for this open issue. Closing the issue dism
   return { status: matches.length ? 'reused' : 'created', version: nextVersion, issue: verified.number, dispatched: true };
 }
 
-export function createRequest(run = spawnSync) {
+export function createRequest(run = spawnSync, { token } = {}) {
   return async (path, { method = 'GET', body } = {}) => {
     if (!path.startsWith('/repos/') || /[\r\n]/.test(path)) throw new Error('Invalid GitHub API endpoint');
     const args = ['api', path, '--method', method, '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28'];
     if (body !== undefined) args.push('--input', '-');
-    const result = run('gh', args, { encoding: 'utf8', input: body === undefined ? undefined : JSON.stringify(body), timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
+    const result = run('gh', args, { encoding: 'utf8', input: body === undefined ? undefined : JSON.stringify(body), timeout: 60_000, maxBuffer: 16 * 1024 * 1024,
+      ...(token === undefined ? {} : { env: { ...process.env, GH_TOKEN: token } }),
+    });
     if (result.error || result.status !== 0) {
       const error = new Error(`GitHub API ${method} ${path}: ${result.error?.message ?? result.stderr}`);
       // gh's HTTP suffix is transport evidence; never infer absence from a

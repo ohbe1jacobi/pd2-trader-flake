@@ -54,6 +54,25 @@ test('only automation-marked same-repo bot events mirror explicit dispatch; huma
   assert.equal(automationHead(release, repository), sha);
 });
 
+test('the configured App bot mirrors dispatch without accepting arbitrary bots or human events', async () => {
+  const { automationHead } = await gate();
+  const e = event();
+  e.sender.login = e.pull_request.user.login = 'pd2-updater[bot]';
+  assert.equal(automationHead(e, repository, 'pd2-updater'), sha);
+  assert.equal(automationHead(e, repository), null);
+  assert.equal(automationHead(e, repository, 'other-app'), null);
+  assert.equal(automationHead(e, repository, 'pd2-updater[bot]'), null);
+  e.sender.type = 'User';
+  assert.equal(automationHead(e, repository, 'pd2-updater'), null);
+  e.sender.type = 'Bot';
+  e.sender.login = 'human';
+  assert.equal(automationHead(e, repository, 'pd2-updater'), null);
+  e.sender.login = 'pd2-updater[bot]';
+  e.pull_request.head.repo.full_name = 'attacker/fork';
+  assert.equal(automationHead(e, repository, 'pd2-updater'), null);
+  assert.equal(automationHead(event(), repository, 'pd2-updater'), sha);
+});
+
 test('dispatch mirror selects exact SHA, branch and workflow and never masks a newer failure', async () => {
   const { selectDispatch, dispatchResult } = await gate();
   const valid = { id: 10, head_sha: sha, head_branch: 'feature/update-pd2-trader-0.10.10', event: 'workflow_dispatch', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success' };
@@ -81,6 +100,28 @@ test('cache manifests bind exact trusted push run, attempt, commit, and independ
   const generated = { ...context, event: 'workflow_dispatch', ref: 'refs/heads/release/0.10.10' };
   assert.deepEqual(validateManifest({ ...generated, roots }, generated, roots), roots);
   assert.throws(() => validateManifest({ ...generated, ref: 'refs/heads/unrelated', roots }, { ...generated, ref: 'refs/heads/unrelated' }, roots));
+});
+
+test('only trusted integration receives a repository-scoped PR App token from its protected environment', () => {
+  const prepare = read('.github/workflows/prepare-update.yml');
+  const [before, tail] = prepare.split('  integrate:\n');
+  const [integrate, cache] = tail.split('  cache:\n');
+  assert.match(integrate, /environment: upstream-update/);
+  assert.doesNotMatch(integrate, /^      pull-requests: write$/m);
+  assert.match(integrate, /actions\/create-github-app-token@[a-f0-9]{40}/);
+  assert.match(integrate, /client-id: \$\{\{ vars.UPDATE_APP_CLIENT_ID \}\}/);
+  assert.match(integrate, /private-key: \$\{\{ secrets.UPDATE_APP_PRIVATE_KEY \}\}/);
+  assert.match(integrate, /repositories: \$\{\{ github.event.repository.name \}\}/);
+  assert.match(integrate, /permission-contents: read/);
+  assert.match(integrate, /permission-pull-requests: write/);
+  assert.match(integrate, /ACTUAL_SLUG: \$\{\{ steps.pr-token.outputs.app-slug \}\}/);
+  assert.match(integrate, /EXPECTED_SLUG: \$\{\{ vars.UPDATE_APP_SLUG \}\}/);
+  assert.match(integrate, /GH_PR_TOKEN: \$\{\{ steps.pr-token.outputs.token \}\}/);
+  assert.match(integrate, /GH_TOKEN: \$\{\{ github.token \}\}/);
+  assert.doesNotMatch(before + cache, /UPDATE_APP_PRIVATE_KEY|GH_PR_TOKEN/);
+  const ci = read('.github/workflows/ci.yml');
+  assert.match(ci, /UPDATE_APP_SLUG: \$\{\{ vars.UPDATE_APP_SLUG \}\}/);
+  assert.doesNotMatch(ci, /GH_PR_TOKEN|UPDATE_APP_PRIVATE_KEY/);
 });
 
 test('CI restricts pushes, reads the public cache, isolates cache writes to trusted pushes', () => {
