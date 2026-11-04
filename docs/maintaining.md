@@ -7,6 +7,7 @@
 - [Update the pinned release](#update-the-pinned-release)
 - [Workflows and review gates](#workflows-and-review-gates)
 - [Repository setup and trust boundary](#repository-setup-and-trust-boundary)
+- [GitHub App for automatic PR checks](#github-app-for-automatic-pr-checks)
 - [Cachix CI setup and isolation](#cachix-ci-setup-and-isolation)
 - [Nix dependency graph](#nix-dependency-graph)
 - [Weekly flake updates](#weekly-flake-updates)
@@ -32,12 +33,87 @@ CI still builds the source package with frontend Vitest and native Cargo tests e
 
 1. Review these changes through `develop`, then land the reviewed automation on **`main`**. Keep `main` as the default branch: scheduled and privileged completion workflows need their definitions there. Local/feature-branch edits alone do not install the new lifecycle. Finish any in-flight legacy release before switching protocols; do not replace legacy PR provenance to make it appear newly generated.
 2. Enable repository Issues and Actions. In **Settings → Actions → General**, allow GitHub Actions to create pull requests, subject to organization policy. Configure branch protection/rulesets for `develop` and `main` to require human review and **`Nix build and tests (x86_64-linux)`**; do not grant automation a review/check bypass. Verify the displayed check name against an actual CI run when configuring the rule.
-3. Use the built-in `GITHUB_TOKEN`; `GH_TOKEN` is the environment variable passed to `gh`, not a separately provisioned personal token. Scope permissions per job: discovery needs `contents: read`, `issues: write`, and `actions: write`; the preparation writer needs `contents: write`, `pull-requests: write`, issue access, and `actions: write`; the separate cache handoff needs only `contents: read` and `actions: write`; the publication controller needs `actions: read`, `contents: write`, `pull-requests: read`, and `issues: read`. Failure diagnostics separately need `issues: write`. Ordinary CI needs only `contents: read` and `actions: read`; Cachix uploads use the separate cache token only on isolated upload steps. Repository/organization policy can still deny an operation; YAML permissions cannot override policy.
-4. Explicit preparation/CI dispatches remain authoritative for generated updates; do not depend on bot branch/tag pushes starting another workflow. Approval-required bot PR runs may still need a maintainer to approve execution; their mirror reports the exact dispatched build's result. Human merges start merged-commit push CI. Recovery can rerun that exact run or dispatch CI on current `main` with `expected_sha` equal to its actual merged SHA. A release-head dispatch or old PR check cannot authorize publication. Verify required-check association, mirror failure behavior, and repository policy during remote rehearsal; do not bypass protection to hide a pending/failed run.
+3. Use the built-in `GITHUB_TOKEN` except for preparation's PR operations, which use a narrowly scoped GitHub App installation token (setup below). `GH_TOKEN` is the environment variable passed to `gh`, not a separately provisioned personal token. Scope permissions per job: discovery needs `contents: read`, `issues: write`, and `actions: write`; the preparation writer needs `contents: write`, issue access, and `actions: write`; the separate cache handoff needs only `contents: read` and `actions: write`; the publication controller needs `actions: read`, `contents: write`, `pull-requests: read`, and `issues: read`. Failure diagnostics separately need `issues: write`. Ordinary CI needs only `contents: read` and `actions: read`; Cachix uploads use the separate cache token only on isolated upload steps. Repository/organization policy can still deny an operation; YAML permissions cannot override policy.
+4. Explicit preparation/CI dispatches remain authoritative for generated updates; do not depend on bot branch/tag pushes starting another workflow. App-created PR checks start automatically instead of the `GITHUB_TOKEN` approval-required path; the build mirror still reports the exact dispatched build's result. Legacy bot-created PR runs may still need approval. Human merges start merged-commit push CI. Recovery can rerun that exact run or dispatch CI on current `main` with `expected_sha` equal to its actual merged SHA. A release-head dispatch or old PR check cannot authorize publication. Verify required-check association, mirror failure behavior, and repository policy during remote rehearsal; do not bypass protection to hide a pending/failed run.
 5. Treat `workflow_run` as privileged. The orchestrator checks out and executes the trusted scripts from **`main`**, not code from a PR or the completed run's branch. It obtains identifiers/statuses through GitHub's API and validates them. It does **not** download and execute CI artifacts, source an artifact as shell code, or run an untrusted PR script with write credentials. Ordinary build CI has no release-write permission.
 6. Require up-to-date branches, disallow force pushes/deletions of `main` and `develop`, and require maintainer review for workflow/controller changes (for example with CODEOWNERS/rulesets). Cache uploads trust reviewed pushes on **both** long-lived branches, so both must be protected. The manual merge gate depends on repository rules, not PR prose. Tracking issues close through `Closes #N` when the release PR merges into default-branch `main`.
 
 GitHub references: [workflow triggers, schedules, and `workflow_run` security](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), [triggering workflows and token recursion rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), [job-scoped token permissions and `GH_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), [annotated tag objects and references](https://docs.github.com/en/rest/git/tags), and [`gh release create --verify-tag`](https://cli.github.com/manual/gh_release_create). Scheduled execution can be delayed; GitHub can disable public-repository schedules after 60 days without activity.
+
+### GitHub App for automatic PR checks
+
+The App is used only by trusted preparation to list/create/read back update PRs.
+Branch/commit writes, explicit CI/cache dispatches, and release publication keep
+their existing `GITHUB_TOKEN` paths. No PAT, auto-merge, protection bypass, or
+App credential in build jobs is needed. The installation token is minted just
+before integration, restricted to this repository and the permissions below,
+and revoked by the action's post-job cleanup by default.
+
+Configure this **before promoting the workflow changes to `main`**:
+
+1. In your personal **Settings → Developer settings → GitHub Apps → New GitHub
+   App**, choose a unique name, for example `ohbe1jacobi-pd2-updater`, and use this
+   repository's URL as the homepage. Leave callback/setup URLs empty, disable
+   **Webhook → Active**, and do not enable user authorization or device flow.
+   Choose **Only on this account** for installation.
+2. Under **Repository permissions**, grant **Contents: Read-only** and **Pull
+   requests: Read and write**. Metadata read access is automatic. Leave all
+   other permissions and event subscriptions unset. In particular, do not grant
+   Actions, Workflows, Administration, or Contents write access.
+3. Create the App. Record its **Client ID** (not its numeric App ID) and exact
+   slug from its public App URL, without `[bot]`. Generate a private key; keep
+   the downloaded PEM private and outside this checkout. Never paste it into
+   chat, put it on a command line, or commit it.
+4. In the App's **Install App** page, install it on `ohbe1jacobi` with **Only
+   select repositories → pd2-trader-flake**. Do not add it to branch/ruleset
+   bypass lists. PR write permission includes merge-related API capabilities;
+   human review and required checks must remain enforced by repository rules.
+5. In repository **Settings → Secrets and variables → Actions → Variables**,
+   create repository variables:
+
+   | Name | Value |
+   | --- | --- |
+   | `UPDATE_APP_CLIENT_ID` | The App's Client ID |
+   | `UPDATE_APP_SLUG` | Exact App slug, e.g. `ohbe1jacobi-pd2-updater` |
+
+   These identifiers are not secrets. Keep the slug at **repository** scope so
+   ordinary read-only PR CI can recognize the App bot; do not override it with
+   a different environment value. Integration checks it against the token
+   action's actual App slug before writing anything.
+6. In repository **Settings → Environments**, create **`upstream-update`**.
+   Set **Deployment branches and tags → Selected branches and tags** and add
+   one **Branch** rule with exact name **`main`**. Allow no tags, `develop`,
+   release branches, wildcards, or PR merge refs. Add the **environment secret**
+   **`UPDATE_APP_PRIVATE_KEY`**, using the complete downloaded PEM contents.
+   Do not create a repository/organization copy accessible outside this
+   environment. Leave required reviewers and wait timers unset if preparation
+   should be unattended. The separate human PR review/merge gate stays in place.
+7. Review/merge the feature into `develop`, then promote it to `main` through a
+   reviewed PR using a merge commit. Protect both branches and restrict who can
+   change the App, repository variables, workflows, and environment policy.
+   Do not require the `upstream-update` environment as a PR deployment gate:
+   it runs on trusted `main`, not the candidate PR head.
+
+For the first **new** generated update after rollout, verify **Prepare upstream
+update → integrate** minted the token and passed the identity check, the PR is
+authored by `<slug>[bot]`, and its **Build and test** and **Nix dependency graph**
+PR runs start without **Approve workflows to run**. The build PR run should
+mirror the explicit exact-head dispatch rather than rebuild. Confirm the
+separate generated-cache result and still review/merge manually. Local tests do
+not establish remote App installation, environment restrictions, or run behavior.
+
+An existing PR authored by `github-actions[bot]` is not reauthored by a retry.
+Approve its already-pending workflows manually; do not delete/recreate its
+frozen branch or alter provenance just to change its author. Complete in-flight
+updates before promotion where practical, because changing `main` can invalidate
+their recorded baseline. Missing App configuration fails preparation closed,
+without silently falling back to approval-required PR creation. Fix settings
+and rerun preparation with the same validated version/issue as appropriate.
+
+References: [GitHub's token-trigger and PR approval rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow),
+[registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app),
+[`actions/create-github-app-token` inputs and cleanup](https://github.com/actions/create-github-app-token),
+and [environment restrictions and secrets](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
 
 ### Cachix CI setup and isolation
 

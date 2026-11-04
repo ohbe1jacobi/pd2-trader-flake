@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 300 || 190 }}
     env:
       PD2_TRADER_NO_HOOKS: "1"
+      UPDATE_APP_SLUG: ${{ vars.UPDATE_APP_SLUG }}
     defaults:
       run:
         shell: bash

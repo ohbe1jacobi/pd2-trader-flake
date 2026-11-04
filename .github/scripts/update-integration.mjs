@@ -30,7 +30,7 @@ export async function planUpdate({ request, repository, version: v, issue }) {
   const existing = await getRef(request, repository, 'heads', branch);
   return { base, branch, generate: !existing, head: existing?.object.sha };
 }
-export async function finishUpdate({ request, repository, version: v, issue, base, native, readme }) {
+export async function finishUpdate({ request, prRequest = request, repository, version: v, issue, base, native, readme }) {
   const plan = await planUpdate({ request, repository, version: v, issue });
   if (plan.base !== sha(base)) throw new Error('Stale main; retry preparation');
   let commit = plan.head;
@@ -62,7 +62,7 @@ export async function finishUpdate({ request, repository, version: v, issue, bas
   if (readPinnedVersion(await content(request, repository, 'native-package.nix', commit)) !== v) throw new Error('Frozen release branch version mismatch');
   await validateUpdateCommit({ request, repository, base, commit, version: v });
   const body = `${marker(v, issue)}\n<!-- pd2-main-base:${base} -->\n\nUpdates PD2 Trader to ${v} from trusted main commit ${base}.\n\nCloses #${issue}\nUpstream: https://github.com/errolgr/pd2-trade/releases/tag/app-v${v}\n\nApplication version/source/npm/Cargo hashes and documented packaged version only; flake inputs unchanged.\n\nFull existing CI is explicitly dispatched. Manual approval/merge into main required. Failed PRs stay open for diagnosis.`;
-  const pr = await ensurePR(request, repository, { head: plan.branch, base: 'main', title: `build: update PD2 Trader to ${v}`, body });
+  const pr = await ensurePR(prRequest, repository, { head: plan.branch, base: 'main', title: `build: update PD2 Trader to ${v}`, body });
   await dispatchCI(request, repository, plan.branch, commit);
   return { status: 'integration-prepared', commit, pr: pr.number };
 }
@@ -70,8 +70,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     if (process.env.GITHUB_REPOSITORY !== 'ohbe1jacobi/pd2-trader-flake' || process.env.GITHUB_REF !== 'refs/heads/main') throw new Error('Run trusted updater on main only');
     if (!process.env.GH_TOKEN) throw new Error('GH_TOKEN is required');
+    if (!process.argv.includes('--plan') && !process.env.GH_PR_TOKEN) throw new Error('GH_PR_TOKEN installation token is required');
     const input = { request: createRequest(), repository: process.env.GITHUB_REPOSITORY, version: process.env.UPDATE_VERSION, issue: process.env.UPDATE_ISSUE };
-    const result = process.argv.includes('--plan') ? await planUpdate(input) : await finishUpdate({ ...input, base: process.env.UPDATE_BASE, native: process.env.UPDATE_NATIVE, readme: process.env.UPDATE_README });
+    const result = process.argv.includes('--plan') ? await planUpdate(input) : await finishUpdate({ ...input, prRequest: createRequest(undefined, { token: process.env.GH_PR_TOKEN }), base: process.env.UPDATE_BASE, native: process.env.UPDATE_NATIVE, readme: process.env.UPDATE_README });
     if (process.argv.includes('--plan') && process.env.GITHUB_OUTPUT) {
       await appendFile(process.env.GITHUB_OUTPUT, `base=${result.base}\ngenerate=${result.generate}\n`);
     } else if (process.env.GITHUB_OUTPUT) {
