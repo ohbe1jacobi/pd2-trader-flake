@@ -101,6 +101,8 @@ jobs:
 
   integrate:
     needs: [plan, generate]
+    # The App private key is available only on exact main via this environment.
+    environment: upstream-update
     outputs:
       commit: ${{ steps.integrate.outputs.commit }}
     concurrency:
@@ -114,7 +116,6 @@ jobs:
     permissions:
       contents: write
       issues: read
-      pull-requests: write
       actions: write
     steps:
       - name: Check out trusted automation only
@@ -126,12 +127,29 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      - name: Mint a repository-scoped PR-only installation token
+        id: pr-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.UPDATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-pull-requests: write
+      - name: Verify the configured CI mirror identity before any writes
+        env:
+          EXPECTED_SLUG: ${{ vars.UPDATE_APP_SLUG }}
+          ACTUAL_SLUG: ${{ steps.pr-token.outputs.app-slug }}
+        run: |
+          [[ "$EXPECTED_SLUG" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] && [[ "$EXPECTED_SLUG" == "$ACTUAL_SLUG" ]]
       # Treat generation output as untrusted text: validate the exact permitted
       # substitutions, construct a Git tree via gh, and never execute it here.
       - name: Verify update payload, create or reuse release PR into main, dispatch full CI
         id: integrate
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_PR_TOKEN: ${{ steps.pr-token.outputs.token }}
           UPDATE_VERSION: ${{ inputs.version }}
           UPDATE_ISSUE: ${{ inputs.issue }}
           UPDATE_BASE: ${{ needs.plan.outputs.base }}
