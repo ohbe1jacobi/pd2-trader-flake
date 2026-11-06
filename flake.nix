@@ -89,6 +89,15 @@
       nixosModules.default = self.nixosModules.pd2-trader;
       checks.${system} = {
         pre-commit = preCommitCheck;
+        codeql = pkgs.runCommand "pd2-trader-codeql-contract" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+          mkdir -p .github/workflows tests
+          cp ${./.github/workflows/codeql.yml} .github/workflows/codeql.yml
+          cp ${./tests/codeql.mjs} tests/codeql.mjs
+          cp ${./flake.nix} flake.nix
+          cp ${./git-hooks.nix} git-hooks.nix
+          node --test tests/codeql.mjs
+          touch "$out"
+        '';
         # Isolated settings/launcher test; does not build or launch the Flatpak app.
         flatpak-launcher = import ./tests/flatpak-launcher.nix { inherit pkgs; };
         # Exercise real bundle metadata, including missing/incorrect URLs.

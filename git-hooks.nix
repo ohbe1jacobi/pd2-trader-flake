@@ -67,6 +67,13 @@
       files = "^(\\.github/(dependabot\\.yml|scripts/(flake-lock-sbom|prepare-nix-sbom|cache-ci)\\.mjs|workflows/(dependency-graph|ci)\\.yml)|tests/dependency-graph\\.mjs|flake\\.(nix|lock)|git-hooks\\.nix)$";
       pass_filenames = false;
     };
+    codeql = {
+      enable = true;
+      name = "Offline CodeQL workflow contracts";
+      entry = "${pkgs.nodejs}/bin/node --test tests/codeql.mjs";
+      files = "^(\\.github/workflows/codeql\\.yml|tests/codeql\\.mjs|flake\\.nix|git-hooks\\.nix)$";
+      pass_filenames = false;
+    };
     flake-check = {
       enable = true;
       name = "Nix flake checks (including application build and tests)";
