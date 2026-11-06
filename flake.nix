@@ -12,8 +12,8 @@
   inputs.home-manager.inputs.nixpkgs.follows = "nixpkgs";
   inputs.git-hooks.url = "github:cachix/git-hooks.nix";
   inputs.git-hooks.inputs.nixpkgs.follows = "nixpkgs";
-  # Experimental converter; pin independently without changing application inputs.
-  inputs.nix2flatpak.url = "github:neobrain/nix2flatpak/7731e8b3fca73879f8217de5a919c0a5d17303de";
+  # Track the converter branch while flake.lock fixes its reviewed revision.
+  inputs.nix2flatpak.url = "github:neobrain/nix2flatpak/main";
   inputs.nix2flatpak.inputs.nixpkgs.follows = "nixpkgs";
   outputs =
     {

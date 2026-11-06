@@ -33,7 +33,7 @@ test('select exactly the immutable run/attempt artifact, not PR mirrors or other
 });
 test('validate exact metadata, checksum and file set', async () => fixture(async dir => {
   assert.equal((await validateFiles(dir, expected)).length, 3);
-  for (const [key, value] of [['runId', 13], ['runAttempt', 1], ['commit', 'c'.repeat(40)], ['runtime', 'other']]) {
+  for (const [key, value] of [['runId', 13], ['runAttempt', 1], ['commit', 'c'.repeat(40)], ['converterRevision', 'b'.repeat(40)], ['runtime', 'other']]) {
     await assert.rejects(validateFiles(dir, { ...expected, [key]: value }), /metadata/);
   }
   await writeFile(join(dir, 'extra'), 'bad');

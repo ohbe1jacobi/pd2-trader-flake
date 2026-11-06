@@ -20,7 +20,9 @@ nix build .#flatpak-repo-prototype --out-link result-flatpak-repo --max-jobs 1 -
 - App ID: `io.github.ohbe1jacobi.PD2Trader`
 - Application branch/architecture: `stable` / `x86_64`
 - Runtime: `org.gnome.Platform/x86_64/51` from Flathub (separate download)
-- Converter: pinned to `7731e8b3fca73879f8217de5a919c0a5d17303de`
+- Converter: tracks `main`, with its exact revision fixed by `flake.lock` and
+  updates proposed through the reviewed weekly Dependabot PR. The prototype
+  audit used revision `7731e8b3fca73879f8217de5a919c0a5d17303de`.
 - `nix2flatpak` follows our existing stable nixpkgs; no unstable app rebuild.
 - ABI checks are enabled. Do not set `skipAbiChecks` to bypass a failure.
 

@@ -11,7 +11,7 @@ const revision = '7731e8b3fca73879f8217de5a919c0a5d17303de';
 const appId = 'io.github.ohbe1jacobi.PD2Trader';
 const commit = 'a'.repeat(40);
 const bundle = 'pd2-trader-0.10.16-x86_64.flatpak';
-function fixture(t, { exit = 0, warning = 'WARNING: informational libstdc++ detection warning', evaluatedRevision = revision } = {}) {
+function fixture(t, { exit = 0, warning = 'WARNING: informational libstdc++ detection warning', lockRevision = revision, evaluatedRevision = lockRevision } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'flatpak-build-test-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   for (const directory of ['bin', 'flatpak', 'converted/flatpak-dir/files/bin', 'converted/flatpak-dir/export/share/applications']) mkdirSync(join(cwd, directory), { recursive: true });
@@ -21,9 +21,11 @@ function fixture(t, { exit = 0, warning = 'WARNING: informational libstdc++ dete
   writeFileSync(join(cwd, 'converted/flatpak-dir/metadata'), `[Application]\nname=${appId}\ncommand=pd2-trader\nruntime=org.gnome.Platform/x86_64/51\n[Context]\nfilesystems=\n[Session Bus Policy]\norg.kde.StatusNotifierWatcher=talk\norg.com_pd2_trader_app.SingleInstance=own\n`);
   writeFileSync(join(cwd, `converted/${appId}.flatpak`), 'test bundle bytes\n');
   writeFileSync(join(cwd, 'converted/build-info.json'), JSON.stringify({ appId, runtime: 'org.gnome.Platform/51', bundleFile: `${appId}.flatpak` }));
-  writeFileSync(join(cwd, 'flake.lock'), JSON.stringify({ root: 'root', nodes: { root: { inputs: { nix2flatpak: 'converter' } }, converter: { locked: { rev: revision } } } }));
+  writeFileSync(join(cwd, 'flake.lock'), JSON.stringify({ root: 'root', nodes: { root: { inputs: { nix2flatpak: 'converter' } }, converter: { locked: { type: 'github', owner: 'neobrain', repo: 'nix2flatpak', rev: lockRevision } } } }));
   writeFileSync(join(cwd, 'bin/nix'), `#!${process.execPath}\nimport { appendFileSync, symlinkSync } from 'node:fs';\nconst args = process.argv.slice(2);\nappendFileSync('calls.jsonl', JSON.stringify(args) + '\\n');\nif (args[0] === 'eval') console.log('0.10.16');\nelse if (args[0] === 'flake' && args[1] === 'metadata') console.log(JSON.stringify({locks:{root:'root',nodes:{root:{inputs:{nix2flatpak:'converter'}},converter:{locked:{rev:'${evaluatedRevision}'}}}}}));\nelse if (args[0] === 'build') {\n console.log('converter stdout'); console.error(${JSON.stringify(warning)});\n if (${exit} !== 0) process.exit(${exit});\n symlinkSync('converted', args[args.indexOf('--out-link') + 1]);\n} else process.exit(99);\n`);
-  chmodSync(join(cwd, 'bin/nix'), 0o755);
+  const nix = join(cwd, 'bin/nix');
+  writeFileSync(nix, readFileSync(nix, 'utf8').replace("converter:{locked:{rev:", "converter:{locked:{type:'github',owner:'neobrain',repo:'nix2flatpak',rev:"));
+  chmodSync(nix, 0o755);
   const run = (extra = {}) => spawnSync(process.execPath, [script.pathname], { cwd, encoding: 'utf8', env: { ...process.env, PATH: `${join(cwd, 'bin')}:${process.env.PATH}`, GITHUB_SHA: commit, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2', ...extra } });
   return { cwd, run };
 }
@@ -46,6 +48,14 @@ test('successful converter process with informational warnings prepares exactly 
   assert.ok(build.includes('.#flatpak-prototype'));
   for (const flag of ['--no-update-lock-file', '--max-jobs', '--cores', '--print-build-logs']) assert.ok(build.includes(flag));
   assert.ok(calls.every(args => !args.some(arg => arg.includes('flatpak-repo-prototype'))));
+});
+
+test('a different valid locked converter revision is accepted and recorded', t => {
+  const next = 'b'.repeat(40);
+  const { cwd, run } = fixture(t, { lockRevision: next });
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(readFileSync(join(cwd, 'flatpak-artifact/build-info.json'))).converterRevision, next);
 });
 
 test('a converter process that exits nonzero fails even if its output is only an informational warning', t => {
@@ -76,8 +86,34 @@ test('mismatched converter lock and malformed run identifiers do not produce art
   assert.throws(() => readdirSync(join(cwd, 'flatpak-artifact')), { code: 'ENOENT' });
 });
 
+test('malformed or foreign locked converter sources never build', t => {
+  for (const change of [{ owner: 'attacker' }, { repo: 'other' }, { type: 'git' }, { rev: '1234' }, { rev: 'Z'.repeat(40) }]) {
+    const { cwd, run } = fixture(t);
+    const path = join(cwd, 'flake.lock');
+    const lock = JSON.parse(readFileSync(path));
+    Object.assign(lock.nodes.converter.locked, change);
+    writeFileSync(path, JSON.stringify(lock));
+    const result = run();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /converter/i);
+    assert.throws(() => readdirSync(join(cwd, 'flatpak-artifact')), { code: 'ENOENT' });
+    const calls = readFileSync(join(cwd, 'calls.jsonl'), 'utf8');
+    assert.doesNotMatch(calls, /"build"/);
+  }
+});
+
 test('resolved flake metadata must agree with the literal converter lock', t => {
   const { cwd, run } = fixture(t, { evaluatedRevision: 'b'.repeat(40) });
+  const result = run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /converter/i);
+  assert.throws(() => readdirSync(join(cwd, 'flatpak-artifact')), { code: 'ENOENT' });
+});
+
+test('resolved metadata with the same revision but a different source is rejected', t => {
+  const { cwd, run } = fixture(t);
+  const nix = join(cwd, 'bin/nix');
+  writeFileSync(nix, readFileSync(nix, 'utf8').replace("owner:'neobrain'", "owner:'attacker'"));
   const result = run();
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /converter/i);

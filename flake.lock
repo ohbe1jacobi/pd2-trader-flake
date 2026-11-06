@@ -93,8 +93,8 @@
       },
       "original": {
         "owner": "neobrain",
+        "ref": "main",
         "repo": "nix2flatpak",
-        "rev": "7731e8b3fca73879f8217de5a919c0a5d17303de",
         "type": "github"
       }
     },

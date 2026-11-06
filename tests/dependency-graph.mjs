@@ -51,6 +51,9 @@ test('flake inputs retain exact revisions, transitive edges and follows without 
   assert.equal(edges.length, 10);
   assert.ok(edges.some(edge => edge.spdxElementId === byName['cachix/git-hooks.nix'].SPDXID
     && edge.relatedSpdxElement === nixpkgs.SPDXID));
+  assert.equal(pinned.nodes.nix2flatpak.original.ref, 'main', 'Track the converter branch for reviewed updates');
+  assert.equal(pinned.nodes.nix2flatpak.original.rev, undefined, 'Do not freeze the input in its original reference');
+  assert.match(pinned.nodes.nix2flatpak.locked.rev, /^[a-f0-9]{40}$/, 'The lockfile still fixes a full converter commit');
   // The converter follows the same stable nixpkgs, but brings two tool inputs.
   for (const [from, to] of [
     ['neobrain/nix2flatpak', 'NixOS/nixpkgs'],

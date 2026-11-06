@@ -5,7 +5,6 @@ import { appendFileSync, closeSync, copyFileSync, createReadStream, mkdirSync, o
 import { join } from 'node:path';
 
 const appId = 'io.github.ohbe1jacobi.PD2Trader';
-const revision = '7731e8b3fca73879f8217de5a919c0a5d17303de';
 const runtime = 'org.gnome.Platform/x86_64/51';
 const artifact = 'flatpak-artifact';
 const diagnostics = 'flatpak-diagnostics';
@@ -41,14 +40,21 @@ try {
   assert.match(version, /^[0-9]+\.[0-9]+\.[0-9]+$/, 'Invalid evaluated application version');
   const lock = JSON.parse(readFileSync('flake.lock', 'utf8'));
   const converterNode = lock.nodes[lock.root].inputs.nix2flatpak;
-  assert.equal(lock.nodes[converterNode].locked.rev, revision, 'Unexpected converter lock');
+  const converter = lock.nodes[converterNode].locked;
+  assert.equal(converter.type, 'github', 'Unexpected converter lock type');
+  assert.equal(converter.owner, 'neobrain', 'Unexpected converter lock owner');
+  assert.equal(converter.repo, 'nix2flatpak', 'Unexpected converter lock repository');
+  assert.match(converter.rev ?? '', /^[a-f0-9]{40}$/, 'Invalid converter lock revision');
   // Resolve the Git-filtered flake through Nix, without a raw working-tree
   // path reference which could import ignored private files into the store.
   const resolved = JSON.parse(execFileSync('nix', ['flake', 'metadata', '--json', '--no-update-lock-file'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })).locks;
   const resolvedNode = resolved.nodes[resolved.root].inputs.nix2flatpak;
-  const converterRevision = resolved.nodes[resolvedNode].locked.rev;
-  assert.equal(converterRevision, revision, 'Evaluated converter differs from the pinned revision');
+  const resolvedConverter = resolved.nodes[resolvedNode].locked;
+  for (const key of ['type', 'owner', 'repo', 'rev', 'narHash']) {
+    assert.equal(resolvedConverter[key], converter[key], `Evaluated converter ${key} differs from the lock`);
+  }
+  const converterRevision = converter.rev;
 
   // Do not parse warning text: the converter exit status is authoritative.
   const fd = openSync(log, 'a');
