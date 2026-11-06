@@ -1,4 +1,16 @@
 { pkgs, shell }:
+let
+  hooks = (import ../git-hooks.nix { inherit pkgs; }).hooks;
+  moduleFiles = map (name: "modules/${name}") (
+    builtins.filter (pkgs.lib.hasSuffix ".nix") (builtins.attrNames (builtins.readDir ../modules))
+  );
+in
+assert builtins.match hooks.statix.files "flake.nix" != null;
+assert builtins.match hooks.deadnix.files "flake.nix" != null;
+assert !(builtins.elem "flake.nix" hooks.statix.settings.ignore);
+assert builtins.all (file: builtins.match hooks.statix.files file != null) moduleFiles;
+assert builtins.all (file: builtins.match hooks.deadnix.files file != null) moduleFiles;
+assert !(builtins.elem "modules/*" hooks.statix.settings.ignore);
 assert !(shell ? LD_LIBRARY_PATH);
 assert !(shell ? LD_PRELOAD);
 assert builtins.elem pkgs.commitizen shell.nativeBuildInputs;

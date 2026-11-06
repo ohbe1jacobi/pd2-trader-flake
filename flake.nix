@@ -6,15 +6,23 @@
       "pd2-trader-flake.cachix.org-1:rg+7WukdJd8/1+Ky8c7kUHivrvfcmOPVlGUxz4CqLM4="
     ];
   };
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  # Used by the module evaluation tests; consumers need not import this HM instance.
-  inputs.home-manager.url = "github:nix-community/home-manager/release-26.05";
-  inputs.home-manager.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.git-hooks.url = "github:cachix/git-hooks.nix";
-  inputs.git-hooks.inputs.nixpkgs.follows = "nixpkgs";
-  # Track the converter branch while flake.lock fixes its reviewed revision.
-  inputs.nix2flatpak.url = "github:neobrain/nix2flatpak/main";
-  inputs.nix2flatpak.inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    # Used by the module evaluation tests; consumers need not import this HM instance.
+    home-manager = {
+      url = "github:nix-community/home-manager/release-26.05";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # Track the converter branch while flake.lock fixes its reviewed revision.
+    nix2flatpak = {
+      url = "github:neobrain/nix2flatpak/main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
   outputs =
     {
       self,
@@ -44,15 +52,15 @@
       packages.${system} = {
         pd2-trader = package;
         default = package;
-        frontend = package.frontend;
+        inherit (package) frontend;
         # Explicit opt-in targets, not part of the default application build.
         flatpak-prototype = flatpakPrototype.bundle;
         flatpak-repo-prototype = flatpakPrototype.repository;
         # Inventory tooling follows the committed nixpkgs pin, not a new input.
-        sbomnix = pkgs.sbomnix;
+        inherit (pkgs) sbomnix;
         # Maintainer tooling uses the same locked package set, with nix-update
         # pinned independently to the revision verified for the native target.
-        nix-update = automationTools.nix-update;
+        inherit (automationTools) nix-update;
       };
       apps.${system} = {
         pd2-trader = {
@@ -86,7 +94,7 @@
         # Exercise real bundle metadata, including missing/incorrect URLs.
         flatpak-runtime-repo = import ./tests/flatpak-runtime-repo.nix {
           inherit pkgs;
-          bundle = flatpakPrototype.bundle;
+          inherit (flatpakPrototype) bundle;
         };
         dependency-graph =
           pkgs.runCommand "pd2-trader-dependency-graph-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }

@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--config', required=True)
     parser.add_argument('--diablo2-directory')
     parser.add_argument('--auto-update-enabled', choices=['true', 'false'])
+    parser.add_argument('--telemetry-opt-out', choices=['true', 'false'])
     args = parser.parse_args()
     managed = {}
     if args.diablo2_directory is not None:
@@ -21,6 +22,8 @@ def main():
         managed['diablo2Directory'] = args.diablo2_directory
     if args.auto_update_enabled is not None:
         managed['autoUpdateEnabled'] = args.auto_update_enabled == 'true'
+    if args.telemetry_opt_out is not None:
+        managed['telemetryOptOut'] = args.telemetry_opt_out == 'true'
     if not managed:
         return
     config = pathlib.Path(args.config)

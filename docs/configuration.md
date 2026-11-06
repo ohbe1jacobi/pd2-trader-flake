@@ -9,6 +9,7 @@
 - [Package selection](#package-selection)
 - [Game-directory handling](#game-directory-handling)
 - [Automatic updates](#automatic-updates)
+- [Telemetry](#telemetry)
 - [KDE rules and cleanup](#kde-rules-and-cleanup)
 
 ## Shared behavior of both modules
@@ -21,12 +22,15 @@ Both the NixOS and Home Manager adapters use **systemd user services**, not root
 
 Under `programs.pd2-trader` in both modules:
 
+Application preferences live under `settings`. Existing top-level `autoUpdateEnabled`, `telemetryOptOut`, and `diablo2Directory` assignments remain usable as deprecated compatibility options. NixOS/Home Manager configuration builds emit a rename warning showing the old and new option paths when one is defined, including when its value is `false` or `null`. Move those assignments under `settings` to remove the warning. The top-level `d2dir` shorthand remains supported without a deprecation warning and points to `settings.diablo2Directory`. Only the Nix option paths change: Trader's JSON keys remain top-level, and no saved-settings migration is needed.
+
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `enable` | `false` | Install the configured package and manage session integration. |
 | `autostart` | `true` | Start Trader at graphical login. Disable for manual launch only. |
-| `autoUpdateEnabled` | `false` | Merge the automatic-update preference before each launch. `null` leaves the saved GUI preference unmanaged; notifications and manual updates remain available. |
-| `d2dir` / `diablo2Directory` | `~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II` | Installation directory, as a quoted string; `d2dir` is an alias. Set `null` to leave the saved GUI setting unmanaged. |
+| `settings.autoUpdateEnabled` | `false` | Merge the automatic-update preference before each launch. `null` leaves the saved GUI preference unmanaged; notifications and manual updates remain available. |
+| `settings.telemetryOptOut` | `null` | `true` opts out of telemetry; `false` allows it. `null` leaves the saved GUI preference unmanaged. Requires upstream 0.10.16 or later. |
+| `d2dir` / `settings.diablo2Directory` | `~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II` | Installation directory, as a quoted string; top-level `d2dir` is an alias for `settings.diablo2Directory`. Set `null` to leave the saved GUI setting unmanaged. |
 | `package` | This flake's locked package for exported modules; consumer-built package for direct module-file imports | Override the Trader package. |
 | `kde.PD2StartWindowed` | `false` | Start the matched game without fullscreen or either maximization axis, using **Apply Initially**. Later manual fullscreen toggles remain possible. |
 | `kde.traderoverlay` | `false` | Force the matched Trader window to **Layer = On-screen display**, skipping the taskbar and window switcher. Does not change the window type. |
@@ -40,6 +44,11 @@ Example inside `programs.pd2-trader` in either module:
 {
   autostart = false;
   d2dir = "~/Games/another-prefix/drive_c/Program Files (x86)/Diablo II";
+
+  settings = {
+    autoUpdateEnabled = false;
+    telemetryOptOut = true;
+  };
 
   # KDE Plasma workarounds are opt-in; no desktop autodetection is performed.
   kde.PD2StartWindowed = true;
@@ -69,17 +78,25 @@ See [build resource limits](troubleshooting.md#build-parallelism-and-resource-li
 
 The directory must be the **actual Diablo II installation**, the parent of `ProjectD2`, not the Wine prefix. Use a quoted Nix string, never a game-directory path literal or interpolation that copies game files into the Nix store.
 
+Use either `programs.pd2-trader.settings.diablo2Directory` or the top-level shorthand `programs.pd2-trader.d2dir`; both configure the same option, including when set to `null`. Do not assign conflicting values to both paths.
+
 A leading `~/` is expanded at launch against the current user's home. Absolute strings are also supported. Other relative paths, `~otheruser`, and shell-variable/command expansion are not supported. The default therefore works for different usernames and home locations without evaluating another user's home during a build.
 
-The module-installed launcher merges the managed `diablo2Directory` and `autoUpdateEnabled` values into `com.pd2-trader.app/settings.json` before executing Trader. Home Manager uses its `xdg.configHome`; NixOS resolves `$XDG_CONFIG_HOME` or `$HOME/.config` at runtime. Tokens, hotkeys, and unrelated settings remain mutable and are preserved. New/replaced JSON is written atomically with private permissions. Malformed, non-object, or symlinked settings files are refused instead of overwritten. No mutable settings or tokens enter the Nix store.
+The module-installed launcher merges the managed `diablo2Directory`, `autoUpdateEnabled`, and `telemetryOptOut` values into `com.pd2-trader.app/settings.json` before executing Trader. Home Manager uses its `xdg.configHome`; NixOS resolves `$XDG_CONFIG_HOME` or `$HOME/.config` at runtime. Tokens, hotkeys, and unrelated settings remain mutable and are preserved. New/replaced JSON is written atomically with private permissions. Malformed, non-object, or symlinked settings files are refused instead of overwritten. No mutable settings or tokens enter the Nix store.
 
 A GUI directory change is overridden at the next configured launch. Setting `d2dir = null` stops managing the value without clearing the last saved path. Settings are not rewritten during system/Home Manager activation.
 
 ### Automatic updates
 
-Both modules default to `autoUpdateEnabled = false`, using upstream's existing preference rather than patching application source. It is reapplied at each configured launch, including when `d2dir = null`. Set `autoUpdateEnabled = null` to leave the GUI preference unmanaged without clearing it, or `true` to opt into upstream's automatic updates. A GUI change persists only until the next configured launch while the option is managed.
+Both modules default to `settings.autoUpdateEnabled = false`, using upstream's existing preference rather than patching application source. It is reapplied at each configured launch, including when `d2dir = null`. Set `settings.autoUpdateEnabled = null` to leave the GUI preference unmanaged without clearing it, or `true` to opt into upstream's automatic updates. A GUI change persists only until the next configured launch while the option is managed.
 
 This disables automatic downloading/installing/restarting, not update checks, notifications, or manual update actions. Continue updating through Nix. Plain `nix run` and profile installations do not merge settings; disable automatic updates in Trader's GUI yourself or use a module. Changing this option requires no frontend or Rust recompilation.
+
+### Telemetry
+
+Set `programs.pd2-trader.settings.telemetryOptOut = true;` in either module to opt out using upstream's telemetry preference (available since 0.10.16). Set it to `false` to allow telemetry, or leave the default `null` to keep the saved GUI preference unmanaged without clearing it. `null` does not itself opt out.
+
+This reuses the automatic-update settings merger and works even when `d2dir` and `settings.autoUpdateEnabled` are both `null`. A managed value is reapplied before each configured launch; GUI changes last until the next launch. Exit and relaunch Trader after changing the option. No frontend or Rust recompilation is required, and no network-blocking or application-source patch is added. Plain `nix run` and profile installations do not merge settings.
 
 ### KDE rules and cleanup
 

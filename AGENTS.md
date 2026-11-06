@@ -32,6 +32,7 @@ This guidance was checked against nixpkgs revision `6b8fc0c3aa1ace4900fc66d35f59
 ## Formatting and Nix style
 
 - Use the official `nixfmt` from the locked development shell, not nixfmt-classic, alejandra, or hand-aligned formatting. Run `nix fmt`; use `nixfmt --check` for read-only verification.
+- Group flake inputs under one `inputs` attribute set. Use a block for inputs with multiple declarations, such as `url` and dependency-specific `inputs.<name>.follows`; keep single-declaration inputs compact, such as `nixpkgs.url = "...";`. Avoid repeating the `inputs.<flake>` prefix across separate assignments.
 - Use lowercase, kebab-case file/directory/package names; use lowerCamelCase for ordinary variables. Preserve standard case-sensitive filenames such as `AGENTS.md`, `README.md`, and `LICENSE`.
 - List function dependencies explicitly in attribute-set arguments. Avoid catch-all arguments, importing an entire `pkgs` set into package expressions, and broad `with` scopes that hide dependencies.
 - Avoid redundant string interpolation; use `lib.optional` / `lib.optionals` for conditional dependency lists.
@@ -71,7 +72,7 @@ Keep both frontend and native Rust `doCheck = true`. The frontend check phase ru
 
 Use the locked `cachix/git-hooks.nix` integration in `git-hooks.nix`. Entering `nix develop` installs the local `pre-commit`, `commit-msg`, and `pre-push` hooks and generates the ignored `.pre-commit-config.yaml` symlink. This intentionally manages the repository's local hook configuration; do not run shell entry in another repository. Set `PD2_TRADER_NO_HOOKS=1` for read-only/CI tooling that must not install hooks. Never stage, commit, or push just to exercise hooks; use synthetic repositories for tests.
 
-- Prefer the built-in hooks and native flake integration (`run`, `shellHook`, and `enabledPackages`), not wrapper programs or a second test runner. Pre-commit covers official nixfmt, the existing package Statix/deadnix policy, Python syntax/error-level Ruff, ShellCheck/shfmt, actionlint, JSON/TOML/YAML syntax, merge markers, and whitespace/EOF hygiene. Fix reported issues; do not bypass hooks to hide failures. Formatter/hygiene hooks may update files; review and restage their changes.
+- Prefer the built-in hooks and native flake integration (`run`, `shellHook`, and `enabledPackages`), not wrapper programs or a second test runner. Pre-commit covers official nixfmt, Statix/deadnix for `flake.nix`, package expressions, and `modules/*.nix`, Python syntax/error-level Ruff, ShellCheck/shfmt, actionlint, JSON/TOML/YAML syntax, merge markers, and whitespace/EOF hygiene. Fix reported issues; do not bypass hooks to hide failures. Formatter/hygiene hooks may update files; review and restage their changes.
 - Full application builds are manual locally, never an automatic pre-push requirement. The manual hook calls `nix flake check` directly; GitHub CI remains the required build/test gate. The existing check graph covers the application build (including Vitest and Cargo tests), packaging/module/helper contracts, and the development-shell contract (including JavaScript syntax). Run it explicitly with `pre-commit run flake-check --hook-stage manual --all-files` from the dev shell.
 - `checks.x86_64-linux.pre-commit` runs the same pre-commit checks in the Nix sandbox; it does not recursively run the pre-push hook. The isolated graphical startup test remains a separate CI/manual command, not a Git hook.
 - Commits in this standalone repository follow **Commitizen / Conventional Commits**: `type(scope): description`, with optional scope and `!` for breaking changes. Examples: `feat(ci): add build checks`, `fix(runtime): preserve media discovery`, and `docs: explain installation`. Use the standard types `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. Commitizen defaults to `cz_conventional_commits`, so no project configuration file is needed; use `cz commit` for the interactive prompt or write a compliant message directly. `commit-msg` validates the message.
@@ -80,11 +81,13 @@ Use the locked `cachix/git-hooks.nix` integration in `git-hooks.nix`. Entering `
 Use the locked tooling and run the checks relevant to the change. From the repository root:
 
 ```bash
-# Read-only formatting and static lint for the package expressions.
-nix develop --command nixfmt --check package.nix native-package.nix tests/build-options.nix
+# Read-only formatting and static lint for flake/package/module expressions.
+nix develop --command nixfmt --check flake.nix package.nix native-package.nix tests/build-options.nix
+nix develop --command statix check flake.nix
 nix develop --command statix check package.nix
 nix develop --command statix check native-package.nix
-nix develop --command deadnix --fail package.nix native-package.nix
+for file in modules/*.nix; do nix develop --command statix check "$file"; done
+nix develop --command deadnix --fail flake.nix package.nix native-package.nix modules/*.nix
 
 # Evaluate exports, compile/test the package, and run integration contracts.
 nix flake check --no-build

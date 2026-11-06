@@ -20,34 +20,63 @@ let
       ];
     }).config;
   disabled = evaluate { };
+  legacyValues = {
+    autoUpdateEnabled = true;
+    telemetryOptOut = false;
+    diablo2Directory = "~/Legacy D2";
+  };
+  legacy = evaluate (legacyValues // { enable = true; });
+  legacyCanonical = evaluate {
+    enable = true;
+    settings = legacyValues;
+  };
+  legacyNull = evaluate {
+    autoUpdateEnabled = null;
+    telemetryOptOut = null;
+    diablo2Directory = null;
+  };
+  traderWarnings = c: builtins.filter (pkgs.lib.hasInfix "programs.pd2-trader.") c.warnings;
   enabled = evaluate {
     enable = true;
-    diablo2Directory = null;
-    autoUpdateEnabled = null;
+    settings = {
+      diablo2Directory = null;
+      autoUpdateEnabled = null;
+      telemetryOptOut = null;
+    };
     kde.PD2StartWindowed = true;
     kde.traderoverlay = true;
   };
   manual = evaluate {
     enable = true;
     autostart = false;
-    autoUpdateEnabled = true;
+    settings = {
+      autoUpdateEnabled = true;
+      telemetryOptOut = false;
+    };
   };
   configured = evaluate {
     enable = true;
-    diablo2Directory = "/home/pd2-test/Program Files (x86)/Diablo II";
+    settings = {
+      telemetryOptOut = true;
+      diablo2Directory = "/home/pd2-test/Program Files (x86)/Diablo II";
+    };
   };
   relative =
     builtins.tryEval
       (evaluate {
         enable = true;
-        diablo2Directory = "relative/Diablo II";
-      }).programs.pd2-trader.diablo2Directory;
+        settings.diablo2Directory = "relative/Diablo II";
+      }).programs.pd2-trader.settings.diablo2Directory;
   unit = enabled.systemd.user.services.pd2-trader;
   defaults = evaluate { enable = true; };
   alias = evaluate {
     enable = true;
     d2dir = "~/Custom D2";
   };
+  aliasNull = evaluate { d2dir = null; };
+  aliasRelative =
+    builtins.tryEval
+      (evaluate { d2dir = "relative/path"; }).programs.pd2-trader.settings.diablo2Directory;
   custom = evaluate {
     enable = true;
     kde.gameWindowTitle = "Custom Diablo II";
@@ -56,19 +85,52 @@ let
   };
   rulesScript = builtins.head custom.systemd.user.services.pd2-trader-kde-rules.Service.ExecStart;
 in
-assert defaults.programs.pd2-trader.autoUpdateEnabled == false;
-assert manual.programs.pd2-trader.autoUpdateEnabled;
-assert enabled.programs.pd2-trader.autoUpdateEnabled == null;
+assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == false;
+assert legacy.programs.pd2-trader.settings == legacyValues;
+assert builtins.all (value: value == null) (
+  builtins.attrValues legacyNull.programs.pd2-trader.settings
+);
+assert builtins.length (traderWarnings legacy) == 3;
+assert builtins.length (traderWarnings legacyNull) == 3;
+assert builtins.all (
+  name:
+  builtins.any (
+    warning:
+    pkgs.lib.hasInfix "programs.pd2-trader.${name}" warning
+    && pkgs.lib.hasInfix "has been renamed" warning
+    && pkgs.lib.hasInfix "programs.pd2-trader.settings.${name}" warning
+  ) (traderWarnings legacy)
+) (builtins.attrNames legacyValues);
+assert builtins.all (c: traderWarnings c == [ ]) [
+  defaults
+  configured
+  alias
+  aliasNull
+  legacyCanonical
+];
+assert
+  legacy.systemd.user.services.pd2-trader.Service.ExecStart
+  == legacyCanonical.systemd.user.services.pd2-trader.Service.ExecStart;
+assert defaults.programs.pd2-trader.settings.telemetryOptOut == null;
+assert configured.programs.pd2-trader.settings.telemetryOptOut;
+assert !manual.programs.pd2-trader.settings.telemetryOptOut;
+assert enabled.programs.pd2-trader.settings.telemetryOptOut == null;
+assert manual.programs.pd2-trader.settings.autoUpdateEnabled;
+assert enabled.programs.pd2-trader.settings.autoUpdateEnabled == null;
 assert !defaults.programs.pd2-trader.kde.PD2StartWindowed;
 assert !defaults.programs.pd2-trader.kde.traderoverlay;
 assert enabled.programs.pd2-trader.kde.PD2StartWindowed;
 assert enabled.programs.pd2-trader.kde.traderoverlay;
 assert
-  defaults.programs.pd2-trader.diablo2Directory
+  defaults.programs.pd2-trader.settings.diablo2Directory
   == "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
-assert alias.programs.pd2-trader.diablo2Directory == "~/Custom D2";
+assert alias.programs.pd2-trader.settings.diablo2Directory == "~/Custom D2";
+assert alias.programs.pd2-trader.d2dir == alias.programs.pd2-trader.settings.diablo2Directory;
+assert aliasNull.programs.pd2-trader.settings.diablo2Directory == null;
+assert !aliasRelative.success;
 assert
-  configured.programs.pd2-trader.diablo2Directory == "/home/pd2-test/Program Files (x86)/Diablo II";
+  configured.programs.pd2-trader.settings.diablo2Directory
+  == "/home/pd2-test/Program Files (x86)/Diablo II";
 assert !relative.success;
 assert !(builtins.elem package configured.home.packages);
 assert builtins.any (p: (p.unconfiguredPackage or null) == package) configured.home.packages;
@@ -93,6 +155,7 @@ pkgs.runCommand "pd2-trader-home-manager-contract" { } ''
   test -f ${enabled.xdg.configFile."systemd/user/pd2-trader.service".source}
   test -f ${enabled.xdg.configFile."systemd/user/pd2-trader-kde-rules.service".source}
   test -f ${configured.xdg.configFile."systemd/user/pd2-trader.service".source}
+  grep -F -- '--telemetry-opt-out true' ${builtins.head configured.systemd.user.services.pd2-trader.Service.ExecStart}
   grep -F -- "--game-title 'Custom Diablo II'" ${rulesScript}
   grep -F -- '--game-class custom-wine-class' ${rulesScript}
   grep -F -- "--trader-title 'Custom Trader'" ${rulesScript}
