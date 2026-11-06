@@ -179,22 +179,37 @@ which is listed in [GitHub's dependency submission documentation](https://docs.g
 The submission action is pinned by full commit and uses Node.js 24. No extra
 flake input, npm dependencies, PAT, or new service is required.
 
-Two inventories are generated on PRs, pushes to `main`, and manual dispatches:
+Four inventories are generated on PRs, pushes to `main`, and manual dispatches:
 
 - **`flake.lock`:** exact locked GitHub revisions, including transitive inputs
   and resolved `follows` edges. A small SPDX adapter handles this lockfile-only
   layer; unsupported source types or malformed pins fail rather than silently
   producing an incomplete inventory. It does not update the lockfile.
-- **`native-package.nix`:** sbomnix's complete build-time derivation dependency
-  graph for `packages.x86_64-linux.default`, including Nix libraries, compilers,
-  build tools, bootstrap components, and the packaging targets. This is **not**
-  a measured runtime-only closure or an inventory of every dev-shell tool.
-  Evaluation does not compile the application. Source fetching derivations and
-  unversioned artifacts without package URLs are excluded from submission;
-  dependency paths through them are retained. A small adapter gives sbomnix's
-  root the identifier expected by the submission action so direct dependencies
-  are recognized, and handles a percent-encoded `+` compatibility issue in the
-  pinned submission toolkit. Inventory root packages may also appear in the graph.
+- **Wrapper (`package.nix`):** direct build dependencies of
+  `packages.x86_64-linux.default`, including the native application, media
+  plugins, and wrapper tooling.
+- **Native (`native-package.nix`):** direct build dependencies of
+  `packages.x86_64-linux.default.native`, including Rust tooling, GUI libraries,
+  desktop integration, and frontend/vendor derivations.
+- **Frontend (`native-package.nix`, separate correlator):** direct build
+  dependencies of `packages.x86_64-linux.frontend`, including Node.js, Python,
+  npm hooks, and the npm dependency bundle.
+
+Each package inventory uses **`--buildtime --depth 1`**. Together these report
+**Direct Nix packaging/build dependencies**, not a complete application SBOM,
+recursive build/toolchain inventory, measured runtime closure, or inventory of
+every dev-shell tool. Scanning all three layers retains the packaging inputs
+hidden behind the wrapper and separate frontend without traversing their entire
+dependency trees. Evaluation does not compile the application.
+
+Entries without package URLs are excluded; paths through them within the
+supplied inventory are retained. This is not a general patch/artifact filter:
+sbomnix can assign package URLs to patches and generated artifacts. Direct hooks,
+vendor bundles, and desktop-file derivations remain visible. A small adapter
+gives each root the identifier expected by the submission action and handles a
+percent-encoded `+` compatibility issue in the pinned submission toolkit.
+Inventory root packages may also appear in the graph; shared packages can occur
+in multiple inventories.
 
 **Upstream application lockfile scanning is deliberately excluded.** No npm or
 Cargo lockfiles are parsed or copied into this repository. Nix derivations for
@@ -209,7 +224,10 @@ A separate fresh runner with `contents: write` submits only this run's immutable
 artifact ID on this repository's `main` push/manual dispatch. It rejects stale
 main SHAs and never checks out/evaluates candidate code or runs application
 artifacts. It uses the built-in `GITHUB_TOKEN`, with separate stable correlators
-for the two manifests. No `pull_request_target` or privileged `workflow_run`
+for all four inventories. The native inventory retains the existing
+`nix-package-x86_64-linux` correlator and `native-package.nix` manifest path to
+replace the previous recursive package submission rather than add another feed.
+No `pull_request_target` or privileged `workflow_run`
 handoff is involved. Keep workflow changes under human review and protect main.
 
 **One-time setup:** a repository administrator must enable **Dependency graph**
@@ -218,7 +236,7 @@ Public repositories normally have it enabled. Organization policy must permit
 the pinned actions and the job's `contents: write` permission. Do not broaden
 the ordinary build job's token permissions or create a PAT for this workflow.
 After landing on `main`, check **Actions → Nix dependency graph**, then
-**Insights → Dependency graph → Dependencies** for both submitted manifests.
+**Insights → Dependency graph → Dependencies** for the submitted inventories.
 Dependency graph ingestion may lag the API acceptance. A successful local SBOM
 generation does not prove the remote graph is enabled or populated.
 
@@ -228,10 +246,18 @@ Local inspection (writes only beneath a disposable directory):
 node --test tests/dependency-graph.mjs
 report_dir=$(mktemp -d)
 sbomnix=$(nix build .#sbomnix --no-link --no-update-lock-file --print-out-paths)
-drv=$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.default.drvPath)
-"$sbomnix/bin/sbomnix" "$drv" --buildtime --exclude-meta --exclude-cpe-matching \
-  --cdx '' --csv '' --spdx "$report_dir/raw.json"
-node .github/scripts/prepare-nix-sbom.mjs "$report_dir/raw.json" "$report_dir/package.spdx.json"
+for target in wrapper native frontend; do
+  case "$target" in
+    wrapper) attribute=packages.x86_64-linux.default ;;
+    native) attribute=packages.x86_64-linux.default.native ;;
+    frontend) attribute=packages.x86_64-linux.frontend ;;
+  esac
+  drv=$(nix eval --no-update-lock-file --raw ".#$attribute.drvPath")
+  "$sbomnix/bin/sbomnix" "$drv" --buildtime --depth 1 --exclude-meta --exclude-cpe-matching \
+    --cdx '' --csv '' --spdx "$report_dir/$target.raw.json"
+  node .github/scripts/prepare-nix-sbom.mjs \
+    "$report_dir/$target.raw.json" "$report_dir/$target.spdx.json"
+done
 node .github/scripts/flake-lock-sbom.mjs flake.lock "$report_dir/inputs.spdx.json"
 ```
 

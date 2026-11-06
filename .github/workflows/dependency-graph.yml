@@ -46,12 +46,20 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/nix-sboms"
           sbomnix=$(nix build .#sbomnix --no-link --no-update-lock-file --print-out-paths)
-          drv=$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.default.drvPath)
-          "$sbomnix/bin/sbomnix" "$drv" \
-            --buildtime --exclude-meta --exclude-cpe-matching \
-            --cdx '' --csv '' --spdx "$RUNNER_TEMP/nix-build.raw.json"
-          node .github/scripts/prepare-nix-sbom.mjs \
-            "$RUNNER_TEMP/nix-build.raw.json" "$RUNNER_TEMP/nix-sboms/package.spdx.json"
+          # Scan each packaging layer directly, not its recursive build machinery.
+          for target in wrapper native frontend; do
+            case "$target" in
+              wrapper) attribute=packages.x86_64-linux.default ;;
+              native) attribute=packages.x86_64-linux.default.native ;;
+              frontend) attribute=packages.x86_64-linux.frontend ;;
+            esac
+            drv=$(nix eval --no-update-lock-file --raw ".#$attribute.drvPath")
+            "$sbomnix/bin/sbomnix" "$drv" \
+              --buildtime --depth 1 --exclude-meta --exclude-cpe-matching \
+              --cdx '' --csv '' --spdx "$RUNNER_TEMP/$target.raw.json"
+            node .github/scripts/prepare-nix-sbom.mjs \
+              "$RUNNER_TEMP/$target.raw.json" "$RUNNER_TEMP/nix-sboms/$target.spdx.json"
+          done
           node .github/scripts/flake-lock-sbom.mjs \
             flake.lock "$RUNNER_TEMP/nix-sboms/inputs.spdx.json"
 
@@ -102,11 +110,30 @@ jobs:
           manifestPath: flake.lock
           correlator: nix-flake-inputs
 
-      - name: Submit Nix package build dependencies
+      # Keep the existing correlator/manifest so this replaces the broad inventory.
+      - name: Submit direct native build dependencies
         uses: advanced-security/spdx-dependency-submission-action@b009efcf8b9d562a4569d2028c276522232e631f # v0.4.0, Node.js 24
         with:
           token: ${{ github.token }}
           filePath: nix-sboms
-          filePattern: package.spdx.json
+          filePattern: native.spdx.json
           manifestPath: native-package.nix
           correlator: nix-package-x86_64-linux
+
+      - name: Submit direct wrapper build dependencies
+        uses: advanced-security/spdx-dependency-submission-action@b009efcf8b9d562a4569d2028c276522232e631f # v0.4.0, Node.js 24
+        with:
+          token: ${{ github.token }}
+          filePath: nix-sboms
+          filePattern: wrapper.spdx.json
+          manifestPath: package.nix
+          correlator: nix-wrapper-x86_64-linux
+
+      - name: Submit direct frontend build dependencies
+        uses: advanced-security/spdx-dependency-submission-action@b009efcf8b9d562a4569d2028c276522232e631f # v0.4.0, Node.js 24
+        with:
+          token: ${{ github.token }}
+          filePath: nix-sboms
+          filePattern: frontend.spdx.json
+          manifestPath: native-package.nix
+          correlator: nix-frontend-x86_64-linux

@@ -2,8 +2,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // Adapt sbomnix's SPDX root to the submission action's documented convention.
-// Source fetches/unversioned build artifacts have no package URL; do not let
-// the action invent generic packages for them. Preserve paths through them.
+// Exclude entries without package URLs so the action does not invent generic
+// packages for them. This is not a patch/artifact filter: some have package URLs.
+// Preserve paths through excluded entries within the supplied inventory.
 export function prepareSpdx(input) {
   const sbom = structuredClone(input);
   const root = sbom.name;
@@ -44,7 +45,7 @@ export function prepareSpdx(input) {
     externalRefs: pkg.externalRefs.map(ref => ref.referenceType === 'purl'
       ? { ...ref, referenceLocator: ref.referenceLocator.replace(/%2B/gi, '+') } : ref),
   }));
-  sbom.name = 'Nix package build dependency graph (x86_64-linux)';
+  sbom.name = 'Direct Nix packaging/build dependencies (x86_64-linux)';
   return sbom;
 }
 
