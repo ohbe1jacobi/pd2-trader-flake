@@ -22,65 +22,79 @@
     default = true;
     description = "Start PD2 Trader with the graphical session using a systemd user service.";
   };
-  autoUpdateEnabled = lib.mkOption {
-    type = lib.types.nullOr lib.types.bool;
-    default = false;
-    description = ''
-      Merge autoUpdateEnabled into the mutable Trader settings before each launch.
-      Defaults to false so Nix manages application updates. Update notifications
-      and manual update actions remain available. Null leaves the saved GUI
-      preference unmanaged without erasing it. No upstream source patch is used.
-    '';
+  settings = {
+    autoUpdateEnabled = lib.mkOption {
+      type = lib.types.nullOr lib.types.bool;
+      default = false;
+      description = ''
+        Merge autoUpdateEnabled into the mutable Trader settings before each launch.
+        Defaults to false so Nix manages application updates. Update notifications
+        and manual update actions remain available. Null leaves the saved GUI
+        preference unmanaged without erasing it. No upstream source patch is used.
+      '';
+    };
+    telemetryOptOut = lib.mkOption {
+      type = lib.types.nullOr lib.types.bool;
+      default = null;
+      description = ''
+        Merge telemetryOptOut into the mutable Trader settings before each launch.
+        True opts out of upstream telemetry; false allows it. Null leaves the
+        saved GUI preference unmanaged without erasing it. Requires upstream
+        0.10.16 or later. No upstream source patch is used.
+      '';
+    };
+    diablo2Directory = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.addCheck lib.types.str (value: lib.hasPrefix "/" value || lib.hasPrefix "~/" value)
+      );
+      default = "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
+      example = "~/Games/custom-prefix/drive_c/Program Files (x86)/Diablo II";
+      description = ''
+        Runtime path to the actual Diablo II installation directory (the parent
+        of ProjectD2), not the Wine prefix. Accepts an absolute path or a leading
+        ~/ expanded against the launching user's home. Use a quoted string,
+        never a Nix path literal: the game must not be copied into the Nix store.
+        When set, the installed launcher merges diablo2Directory into the
+        mutable Trader settings before each launch. Null leaves the GUI setting
+        unmanaged and does not erase its last value. Exit Trader before relaunching
+        with a changed value. No game files are modified or imported.
+      '';
+    };
   };
-  diablo2Directory = lib.mkOption {
-    type = lib.types.nullOr (
-      lib.types.addCheck lib.types.str (value: lib.hasPrefix "/" value || lib.hasPrefix "~/" value)
-    );
-    default = "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
-    example = "~/Games/custom-prefix/drive_c/Program Files (x86)/Diablo II";
-    description = ''
-      Runtime path to the actual Diablo II installation directory (the parent
-      of ProjectD2), not the Wine prefix. Accepts an absolute path or a leading
-      ~/ expanded against the launching user's home. Use a quoted string,
-      never a Nix path literal: the game must not be copied into the Nix store.
-      When set, the installed launcher merges diablo2Directory into the
-      mutable Trader settings before each launch. Null leaves the GUI setting
-      unmanaged and does not erase its last value. Exit Trader before relaunching
-      with a changed value. No game files are modified or imported.
-    '';
-  };
-  kde.PD2StartWindowed = lib.mkOption {
-    type = lib.types.bool;
-    default = false;
-    description = ''
-      Start the exact Diablo II / steam_app_default window without fullscreen
-      or either maximization axis. Uses Apply Initially, so manual fullscreen
-      changes remain possible. Does not edit D2GL or Lutris settings.
-      Opt-in for KDE Plasma; no desktop autodetection is performed.
-    '';
-  };
-  kde.traderoverlay = lib.mkOption {
-    type = lib.types.bool;
-    default = false;
-    description = ''
-      Force the PD2Trader window to KWin's on-screen-display layer and skip
-      the taskbar and window switcher. Does not change input/cursor settings.
-      Opt-in for KDE Plasma; no desktop autodetection is performed.
-    '';
-  };
-  kde.gameWindowTitle = lib.mkOption {
-    type = lib.types.addCheck lib.types.str (value: value != "");
-    default = "Diablo II";
-    description = "Exact game window title to match for the windowed-start rule.";
-  };
-  kde.gameWindowClass = lib.mkOption {
-    type = lib.types.addCheck lib.types.str (value: value != "");
-    default = "steam_app_default";
-    description = "Exact Wine/X11 window class to match alongside the game title; override for another Wine runner.";
-  };
-  kde.traderWindowTitle = lib.mkOption {
-    type = lib.types.addCheck lib.types.str (value: value != "");
-    default = "PD2Trader";
-    description = "Exact Trader overlay window title to match for the stacking rule.";
+  kde = {
+    PD2StartWindowed = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Start the exact Diablo II / steam_app_default window without fullscreen
+        or either maximization axis. Uses Apply Initially, so manual fullscreen
+        changes remain possible. Does not edit D2GL or Lutris settings.
+        Opt-in for KDE Plasma; no desktop autodetection is performed.
+      '';
+    };
+    traderoverlay = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Force the PD2Trader window to KWin's on-screen-display layer and skip
+        the taskbar and window switcher. Does not change input/cursor settings.
+        Opt-in for KDE Plasma; no desktop autodetection is performed.
+      '';
+    };
+    gameWindowTitle = lib.mkOption {
+      type = lib.types.addCheck lib.types.str (value: value != "");
+      default = "Diablo II";
+      description = "Exact game window title to match for the windowed-start rule.";
+    };
+    gameWindowClass = lib.mkOption {
+      type = lib.types.addCheck lib.types.str (value: value != "");
+      default = "steam_app_default";
+      description = "Exact Wine/X11 window class to match alongside the game title; override for another Wine runner.";
+    };
+    traderWindowTitle = lib.mkOption {
+      type = lib.types.addCheck lib.types.str (value: value != "");
+      default = "PD2Trader";
+      description = "Exact Trader overlay window title to match for the stacking rule.";
+    };
   };
 }

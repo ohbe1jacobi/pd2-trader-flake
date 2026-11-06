@@ -21,10 +21,29 @@ let
       ];
     }).config;
   disabled = evaluate { };
+  legacyValues = {
+    autoUpdateEnabled = true;
+    telemetryOptOut = false;
+    diablo2Directory = "~/Legacy D2";
+  };
+  legacy = evaluate (legacyValues // { enable = true; });
+  legacyCanonical = evaluate {
+    enable = true;
+    settings = legacyValues;
+  };
+  legacyNull = evaluate {
+    autoUpdateEnabled = null;
+    telemetryOptOut = null;
+    diablo2Directory = null;
+  };
+  traderWarnings = c: builtins.filter (lib.hasInfix "programs.pd2-trader.") c.warnings;
   enabled = evaluate {
     enable = true;
     inherit package;
-    diablo2Directory = "/home/alice/Games/Diablo II";
+    settings = {
+      diablo2Directory = "/home/alice/Games/Diablo II";
+      telemetryOptOut = true;
+    };
     kde.PD2StartWindowed = true;
     kde.traderoverlay = true;
   };
@@ -32,24 +51,31 @@ let
     enable = true;
     inherit package;
     autostart = false;
-    autoUpdateEnabled = true;
+    settings = {
+      autoUpdateEnabled = true;
+      telemetryOptOut = false;
+    };
   };
   defaults = evaluate { enable = true; };
   alias = evaluate {
     enable = true;
     d2dir = "~/Alternate D2";
   };
+  aliasNull = evaluate { d2dir = null; };
+  aliasRelative =
+    builtins.tryEval
+      (evaluate { d2dir = "relative/path"; }).programs.pd2-trader.settings.diablo2Directory;
   removed = evaluate {
     enable = true;
     users.alice = { };
   };
   relative = evaluate {
     enable = true;
-    diablo2Directory = "relative/path";
+    settings.diablo2Directory = "relative/path";
   };
   nixPath = evaluate {
     enable = true;
-    diablo2Directory = ../.;
+    settings.diablo2Directory = ../.;
   };
   configured = import ../modules/runtime.nix {
     inherit lib pkgs;
@@ -61,21 +87,52 @@ let
   rendered = name: enabled.systemd.user.units.${name}.unit;
 in
 assert assertionsPass disabled;
+assert legacy.programs.pd2-trader.settings == legacyValues;
+assert builtins.all (value: value == null) (
+  builtins.attrValues legacyNull.programs.pd2-trader.settings
+);
+assert builtins.length (traderWarnings legacy) == 3;
+assert builtins.length (traderWarnings legacyNull) == 3;
+assert builtins.all (
+  name:
+  builtins.any (
+    warning:
+    lib.hasInfix "programs.pd2-trader.${name}" warning
+    && lib.hasInfix "has been renamed" warning
+    && lib.hasInfix "programs.pd2-trader.settings.${name}" warning
+  ) (traderWarnings legacy)
+) (builtins.attrNames legacyValues);
+assert builtins.all (c: traderWarnings c == [ ]) [
+  defaults
+  enabled
+  alias
+  aliasNull
+  legacyCanonical
+];
+assert
+  legacy.systemd.user.services.pd2-trader.serviceConfig.ExecStart
+  == legacyCanonical.systemd.user.services.pd2-trader.serviceConfig.ExecStart;
+assert defaults.programs.pd2-trader.settings.telemetryOptOut == null;
+assert enabled.programs.pd2-trader.settings.telemetryOptOut;
+assert !manual.programs.pd2-trader.settings.telemetryOptOut;
 assert assertionsPass enabled;
 assert assertionsPass manual;
 assert assertionsPass defaults;
 # The per-user interface was removed in favor of system-wide settings.
 assert !(assertionsPass removed);
-assert defaults.programs.pd2-trader.autoUpdateEnabled == false;
-assert manual.programs.pd2-trader.autoUpdateEnabled;
+assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == false;
+assert manual.programs.pd2-trader.settings.autoUpdateEnabled;
 assert !defaults.programs.pd2-trader.kde.PD2StartWindowed;
 assert !defaults.programs.pd2-trader.kde.traderoverlay;
 assert
-  defaults.programs.pd2-trader.diablo2Directory
+  defaults.programs.pd2-trader.settings.diablo2Directory
   == "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
-assert alias.programs.pd2-trader.diablo2Directory == "~/Alternate D2";
-assert !(builtins.tryEval relative.programs.pd2-trader.diablo2Directory).success;
-assert !(builtins.tryEval nixPath.programs.pd2-trader.diablo2Directory).success;
+assert alias.programs.pd2-trader.settings.diablo2Directory == "~/Alternate D2";
+assert alias.programs.pd2-trader.d2dir == alias.programs.pd2-trader.settings.diablo2Directory;
+assert aliasNull.programs.pd2-trader.settings.diablo2Directory == null;
+assert !aliasRelative.success;
+assert !(builtins.tryEval relative.programs.pd2-trader.settings.diablo2Directory).success;
+assert !(builtins.tryEval nixPath.programs.pd2-trader.settings.diablo2Directory).success;
 assert !(disabled.systemd.user.services ? pd2-trader);
 assert !(disabled.systemd.user.services ? pd2-trader-kde-rules);
 assert !(builtins.elem disabled.programs.pd2-trader.package disabled.environment.systemPackages);
@@ -121,6 +178,7 @@ pkgs.runCommand "pd2-trader-nixos-contract" { } ''
   test -x ${configured.package}/bin/pd2-trader
   test -x ${configured.applyRules}
   grep -F ${lib.escapeShellArg "/home/alice/Games/Diablo II"} ${configured.package}/bin/pd2-trader
+  grep -F -- '--telemetry-opt-out true' ${configured.package}/bin/pd2-trader
   grep -F -- '--windowed true' ${configured.applyRules}
   grep -F -- '--overlay true' ${configured.applyRules}
   touch "$out"

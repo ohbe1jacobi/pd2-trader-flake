@@ -8,13 +8,17 @@
 let
   bool = value: if value then "true" else "false";
   settingsArgs =
-    lib.optionals (cfg.diablo2Directory != null) [
+    lib.optionals (cfg.settings.diablo2Directory != null) [
       "--diablo2-directory"
-      cfg.diablo2Directory
+      cfg.settings.diablo2Directory
     ]
-    ++ lib.optionals (cfg.autoUpdateEnabled != null) [
+    ++ lib.optionals (cfg.settings.autoUpdateEnabled != null) [
       "--auto-update-enabled"
-      (bool cfg.autoUpdateEnabled)
+      (bool cfg.settings.autoUpdateEnabled)
+    ]
+    ++ lib.optionals (cfg.settings.telemetryOptOut != null) [
+      "--telemetry-opt-out"
+      (bool cfg.settings.telemetryOptOut)
     ];
   configHomeSetup =
     if configHome == null then

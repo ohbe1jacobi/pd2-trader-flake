@@ -66,10 +66,36 @@ with tempfile.TemporaryDirectory() as tmp:
     assert json.loads(settings.read_text()) == expected
     assert update('invalid').returncode != 0
     assert json.loads(settings.read_text()) == expected
+    # Telemetry uses the same merger, independently of path/updater management.
+    def telemetry(value):
+        return subprocess.run([sys.executable, helper, '--config', str(settings),
+                               '--telemetry-opt-out', value], capture_output=True, text=True)
+
+    for value in ['true', 'false']:
+        result = telemetry(value)
+        assert result.returncode == 0, result.stderr
+        expected['telemetryOptOut'] = value == 'true'
+        assert json.loads(settings.read_text()) == expected
+        assert stat.S_IMODE(settings.stat().st_mode) == 0o600
+        before = (settings.read_bytes(), settings.stat().st_mtime_ns)
+        assert telemetry(value).returncode == 0
+        assert (settings.read_bytes(), settings.stat().st_mtime_ns) == before
+    assert run().returncode == 0
+    assert json.loads(settings.read_text()) == expected
+    assert telemetry('invalid').returncode != 0
+    assert json.loads(settings.read_text()) == expected
+    for invalid in ['{broken', '[]', 'null', '42']:
+        settings.write_text(invalid)
+        assert telemetry('true').returncode != 0
+        assert settings.read_text() == invalid
     settings.unlink()
     target = pathlib.Path(tmp) / 'declarative.json'
     target.write_text(json.dumps(original))
     settings.symlink_to(target)
     assert run().returncode != 0
+    assert telemetry('true').returncode != 0
     assert json.loads(target.read_text()) == original
-    print('PASS: D2 path creation, JSON merge, token preservation, private permissions, idempotence, invalid/symlink safety')
+    settings.unlink()
+    assert telemetry('true').returncode == 0
+    assert json.loads(settings.read_text()) == {'telemetryOptOut': True}
+    print('PASS: D2 path creation, updater/telemetry merge, token preservation, private permissions, idempotence, invalid/symlink safety')
