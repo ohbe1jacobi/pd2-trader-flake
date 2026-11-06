@@ -73,6 +73,12 @@ export async function loadArtifact({ request, repository, run, expected, directo
   if (readback.id !== item.id || readback.name !== item.name || readback.digest !== item.digest) throw new Error('Artifact identity changed during download');
   return validateFiles(output, expected);
 }
+function assetLabel(name) {
+  if (name.endsWith('.flatpak')) return 'Flatpak — Linux x86_64 (experimental)';
+  if (name === 'SHA256SUMS') return 'Flatpak — SHA-256 checksums';
+  if (name === 'build-info.json') return 'Flatpak — Build information';
+  throw new Error(`Unexpected release asset: ${name}`);
+}
 export async function ensureAssets({ request, repository, release, files, runCommand = spawnSync }) {
   const root = `/repos/${repository}/releases`;
   const assets = [];
@@ -85,15 +91,22 @@ export async function ensureAssets({ request, repository, release, files, runCom
   if (assets.some(asset => !files.some(file => file.name === asset.name))) throw new Error('Unexpected release asset');
   const matches = (asset, file) => asset?.name === file.name && asset.state === 'uploaded' &&
     asset.size === file.size && asset.digest === `sha256:${file.sha256}`;
+  const matchesLabel = (asset, file) => matches(asset, file) && asset.label === assetLabel(file.name);
   // Detect every conflict before uploading anything; never use --clobber.
   for (const file of files) {
     const found = assets.filter(asset => asset.name === file.name);
     if (found.length > 1 || (found.length === 1 && !matches(found[0], file))) throw new Error(`Release asset conflict: ${file.name}`);
   }
   for (const file of files) {
-    if (!assets.some(asset => asset.name === file.name)) {
+    const existing = assets.find(asset => asset.name === file.name);
+    if (!existing) {
       if (release.draft !== true) throw new Error(`Existing published release is missing asset: ${file.name}`);
-      command(runCommand, 'gh', ['release', 'upload', release.tag_name, file.path, '--repo', repository]);
+      command(runCommand, 'gh', ['release', 'upload', release.tag_name, `${file.path}#${assetLabel(file.name)}`, '--repo', repository]);
+    } else if (existing.label !== assetLabel(file.name)) {
+      // Matching bytes may retain an older display label. Repair only metadata;
+      // keep the filename, asset identity and contents unchanged on retries.
+      if (!Number.isSafeInteger(existing.id) || existing.id < 1) throw new Error('Invalid release asset ID');
+      await request(`${root}/assets/${existing.id}`, { method: 'PATCH', body: { label: assetLabel(file.name) } });
     }
   }
   const final = [];
@@ -105,8 +118,8 @@ export async function ensureAssets({ request, repository, release, files, runCom
   if (final.length !== files.length) throw new Error('Release asset readback file set mismatch');
   for (const file of files) {
     const found = final.filter(asset => asset.name === file.name);
-    if (found.length !== 1 || !matches(found[0], file) || !Number.isSafeInteger(found[0].id)) throw new Error('Release asset readback mismatch');
-    if (!matches(await request(`${root}/assets/${found[0].id}`), file)) throw new Error('Release asset readback mismatch');
+    if (found.length !== 1 || !matchesLabel(found[0], file) || !Number.isSafeInteger(found[0].id)) throw new Error('Release asset readback mismatch');
+    if (!matchesLabel(await request(`${root}/assets/${found[0].id}`), file)) throw new Error('Release asset readback mismatch');
   }
 }
 

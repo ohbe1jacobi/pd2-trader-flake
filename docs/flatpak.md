@@ -1,10 +1,16 @@
-# Flatpak prototype: user guide
+# Experimental Flatpak: user guide
 
 This is experimental, independent packaging of PD2 Trader **0.10.16**, not an
-official upstream or Flathub release. There is no hosted Flatpak update channel
-or published download offered here yet. The commands below assume you have
-obtained a local prototype bundle from a trusted builder; see the
-[maintainer guide](../flatpak/README.md) for building and validation.
+official upstream or Flathub release. A locally built bundle was **manually added
+to the [0.10.16 GitHub Release](https://github.com/ohbe1jacobi/pd2-trader-flake/releases/tag/v0.10.16)**.
+You do not need Nix to install it. Automated packaging and release-asset uploads
+are **expected starting with 0.10.17**, subject to successful CI and release
+eligibility checks; 0.10.16 was not produced by that automated path.
+
+A **GitHub Pages–hosted Flatpak repository is on the roadmap**, but there is no
+hosted Trader update channel yet. Until then, install and update with downloaded
+bundles. See the [maintainer guide](../flatpak/README.md) for building, validation
+and the remaining publication gates.
 
 > **Updater warning for 0.10.16:** Disable automatic updates in Trader's settings
 > on first launch. **Do not use any in-app install/update action**, including
@@ -31,17 +37,29 @@ obtained a local prototype bundle from a trusted builder; see the
 
 ## Obtain and install a bundle
 
-Once published, look for `pd2-trader-<version>-x86_64.flatpak` and
-`SHA256SUMS` on this repository's [GitHub Releases](https://github.com/ohbe1jacobi/pd2-trader-flake/releases).
-Release bundles are not available yet; older releases are not being backfilled.
-Download both files into one directory and verify before installing:
+Open the [0.10.16 release](https://github.com/ohbe1jacobi/pd2-trader-flake/releases/tag/v0.10.16)
+and download all three assets into one directory:
+
+| Filename | Display label in release assets |
+| --- | --- |
+| `pd2-trader-0.10.16-experimental-x86_64.flatpak` | Flatpak — Linux x86_64 (experimental) |
+| `SHA256SUMS` | Flatpak — SHA-256 checksums |
+| `build-info.json` | Flatpak — Build information |
+
+The display labels do not change the downloaded filenames. GitHub's automatic
+source-code ZIP and tarball are not installable Flatpak bundles.
+
+Verify the downloads from that directory before installing:
 
 ```bash
 sha256sum --check SHA256SUMS
 ```
 
-The checksum file also covers `build-info.json`; download that release asset too.
-Checksums detect corruption but do not independently authenticate the publisher.
+Both checksum entries must report `OK`. The checksum file covers the bundle and
+`build-info.json`; checksums detect corruption but do not independently
+authenticate the publisher. The 0.10.16 build information records a local build,
+not a GitHub Actions run, and a packaging commit different from the release tag.
+Do not treat the tag's CI result as verification of this later-added bundle.
 
 Run as your normal desktop user, not with `sudo`. These commands change your
 per-user Flatpak installation. If you do not already have the Flathub remote:
@@ -50,14 +68,14 @@ per-user Flatpak installation. If you do not already have the Flathub remote:
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 ```
 
-Install the runtime and then your trusted local bundle (replace the bundle path):
+Install the runtime and then the downloaded bundle from that directory:
 
 ```bash
 flatpak install --user flathub org.gnome.Platform/x86_64/51
-flatpak install --user /path/to/pd2-trader-0.10.16-x86_64.flatpak
+flatpak install --user ./pd2-trader-0.10.16-experimental-x86_64.flatpak
 ```
 
-The application ID is `io.github.ohbe1jacobi.PD2Trader`; the prototype branch is
+The application ID is `io.github.ohbe1jacobi.PD2Trader`; the Flatpak branch is
 `stable`. The bundle is currently unsigned and is not a production distribution.
 Adding Flathub supplies the runtime, not a hosted PD2 Trader update channel.
 
@@ -140,11 +158,13 @@ resetting unrelated overrides when changing this setup.
 
 ## Install subsequent bundles
 
-There is **no hosted application update channel** in this prototype. `flatpak
+There is **no hosted application update channel** yet. `flatpak
 update` can update installed runtimes but does not fetch a new Trader bundle
-from this project. Once available, obtain and verify the newer release bundle
-as above. Quit
-Trader completely and install that local file using the same application ID:
+from this project. When a newer release bundle is available, download it with
+its matching `SHA256SUMS` and `build-info.json`, then verify as above. Automated
+bundles are expected to use `pd2-trader-<version>-x86_64.flatpak` (without
+0.10.16's `experimental` filename component); they remain experimental packaging.
+Quit Trader completely and install the new local file using the same application ID:
 
 ```bash
 flatpak install --user --or-update /path/to/new/pd2-trader-VERSION-x86_64.flatpak

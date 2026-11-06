@@ -76,7 +76,12 @@ Installation, GNOME 51 runtime setup, persistent `PD2_TRADER_D2_DIR` configurati
 the exact narrow `ProjectD2/pd2logs:create` grant, replacement bundles and cleanup
 are documented once in the [Flatpak user guide](../docs/flatpak.md). Follow that
 guide only when explicitly ready to modify a desktop installation. There is no
-published bundle download or hosted application update channel yet.
+hosted application update channel yet. A locally built experimental bundle was
+manually attached to the 0.10.16 release; its build information records the
+packaging commit separately from the older release tag. Automated packaging and
+release-asset uploads are expected starting with 0.10.17, subject to CI and the
+existing release gates, not as a claim that this path has already published a
+release.
 
 > **Pinned 0.10.16 updater warning:** Disable automatic updates and do not use
 > manual, toast or About-page install/update actions. The launcher preserves
@@ -145,6 +150,9 @@ Flatpak-specific wording; preventing installation and good update guidance are
 separate requirements.
 
 ## GitHub Pages is a later publication step
+
+Hosting a Flatpak repository on GitHub Pages is on the roadmap, not a currently
+available update service. Downloadable release bundles are a separate step.
 
 Do not upload this unsigned prototype to Pages. Before enabling publication:
 

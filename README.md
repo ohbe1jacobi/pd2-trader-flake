@@ -4,14 +4,14 @@ Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade),
 
 Includes Home Manager and standalone NixOS modules for graphical-login startup, a configurable Diablo II directory, and KDE window-rule workarounds.
 
-> **Using another Linux distribution?** NixOS is not required. Follow [Install with Nix on another Linux distribution](docs/installation.md#install-with-nix-on-another-linux-distribution) for setup, `nix run`, and profile installation.
+> **Using another Linux distribution?** NixOS is not required. Follow [Install with Nix on another Linux distribution](docs/installation.md#install-with-nix-on-another-linux-distribution) for setup, `nix run`, and profile installation. An [experimental Flatpak](docs/flatpak.md) is also available for users who do not want to install Nix.
 
 ## Before you start
 
 - Supports **x86_64-linux** with X11/XWayland; not macOS, ARM, or pure Wayland game detection.
 - Install Diablo II/Project Diablo 2 and Wine/Proton separately. This package does not install or configure the game.
-- Enable Nix's `nix-command` and `flakes` features. The [installation guide](docs/installation.md) covers setup if needed.
-- Matching builds can use the opt-in [public binary cache](#binary-cache). Cache misses can require substantial build time, disk space, and memory.
+- For Nix installations, enable Nix's `nix-command` and `flakes` features. The [installation guide](docs/installation.md) covers setup if needed.
+- Matching Nix builds can use the opt-in [public binary cache](#binary-cache). Cache misses can require substantial build time, disk space, and memory.
 
 ## Quick start
 
@@ -89,6 +89,7 @@ See the [installation guide](docs/installation.md) for removal and profile-insta
 ## Documentation
 
 - [Installation](docs/installation.md): detailed NixOS, Home Manager, and other Linux setup, binary cache, updates, and removal.
+- [Flatpak](docs/flatpak.md): experimental release bundle, runtime installation, game-directory access, and manual bundle updates.
 - [Configuration](docs/configuration.md): module options, game-directory handling, automatic updates, and KDE rules.
 - [Troubleshooting](docs/troubleshooting.md): service logs, desktop/graphics caveats, and build resource limits.
 - [Contributing](CONTRIBUTING.md): development shell, package structure, hooks, and checks.
@@ -96,9 +97,15 @@ See the [installation guide](docs/installation.md) for removal and profile-insta
 
 ## Experimental Flatpak
 
-We also build an experimental Flatpak bundle for Linux users without Nix.
-Release downloads are not available yet. See the [Flatpak installation and
-configuration guide](docs/flatpak.md), including its important updater warning.
+An experimental Linux x86_64 Flatpak was built locally and **manually added to
+the [0.10.16 release](https://github.com/ohbe1jacobi/pd2-trader-flake/releases/tag/v0.10.16)**.
+It runs without Nix. See the [Flatpak installation and configuration
+guide](docs/flatpak.md), including its important updater warning.
+
+Automated Flatpak packaging and release-asset uploads are **expected starting
+with 0.10.17**, subject to successful CI and the existing release gates. A
+GitHub Pages–hosted Flatpak repository for normal Flatpak updates is on the
+roadmap; there is no hosted Trader update channel yet.
 
 ## License
 
