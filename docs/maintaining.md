@@ -6,6 +6,7 @@
 
 - [Update the pinned release](#update-the-pinned-release)
 - [Workflows and review gates](#workflows-and-review-gates)
+- [Flatpak release assets](#flatpak-release-assets)
 - [Repository setup and trust boundary](#repository-setup-and-trust-boundary)
 - [GitHub App for automatic PR checks](#github-app-for-automatic-pr-checks)
 - [Cachix CI setup and isolation](#cachix-ci-setup-and-isolation)
@@ -24,10 +25,49 @@ Routine upstream updates follow **upstream release → tracking issue → frozen
 - **Preparation — `.github/workflows/prepare-update.yml`:** discovery explicitly dispatches validated `version` and `issue` inputs. Preparation creates `release/<version>` from a recorded exact `main` baseline, updates source/npm/Cargo hashes with the pinned `nix-update` 1.16.0 in `automation-tools.nix`, verifies realized fixed-output contents and repeat-run idempotence, and updates the README packaged-version reference. Generated changes may touch only those literal values in `native-package.nix` and the README reference. **Both `flake.nix` and `flake.lock` stay unchanged; no `nix flake update` runs.** Preparation opens/reuses one PR into `main` and dispatches CI with `expected_sha`; a moved/mismatched head fails before building. A separate trusted-main job waits for successful exact-head CI, rereads its run/attempt, and explicitly dispatches the isolated cache publisher on `main`. It runs outside the short publication lock and never downloads artifacts or executes candidate code. Preparation remains in progress while this job waits; that alone is not a hung build.
 - **Manual release gate:** review upstream changes, the generated diff, and **`Nix build and tests (x86_64-linux)`** before merging into `main`. Ordinary feature PRs use PR-triggered CI. Same-repository bot-generated update PR events mirror the exact-head dispatched result rather than compiling a second time; failures/timeouts fail the mirror, never skipped-green. Human update events run the normal checks. For best cache reuse, also wait for **Cache validated generated update** to finish before merging. Cache publication is not a required PR deployment: do not require the `cachix-publish` environment as a pre-merge deployment, since the isolated publisher runs on `main`, not the PR head.
 - **Publication gate:** require successful CI on the **actual resulting merged `main` SHA**, not merely the pre-merge head. The `workflow_run` controller checks trusted repository/workflow/event/run attempt/job, eligible merged PR, exact version/issue, recorded baseline, full Git trees/modes, and the narrow generated payload. Preserve `<!-- pd2-update:VERSION:ISSUE -->` and `<!-- pd2-main-base:SHA -->` in release PR bodies. Legacy develop-based provenance fails closed; ordinary feature PRs and arbitrary main changes cannot publish upstream releases.
-- **Publication:** create/reuse the annotated tag through `gh api`, verify the exact tested target and annotation, then use `gh release create --verify-tag --latest=true`. Conventions remain `v<version>`, annotation/title `PD2 Trader <version>`, and notes beginning `Nix packaging for upstream PD2 Trader <version>.` No release binary assets are required; installable binaries are served by Cachix. Only the eligible stable version still packaged on current `main` can publish or recover Latest. Every page of published stable version tags is checked, as is the repository's existing Latest designation; a newer version supersedes an older rerun without writes. Drafts, prereleases and unrelated releases are never promoted. An unrelated/invalid existing Latest fails closed for manual investigation. Readback verifies both the exact release-tag endpoint and `/releases/latest`, including identity and release metadata, with bounded retries. Correct existing tags/releases are reused; conflicting ones are never overwritten. A validated existing release missing Latest is repaired with only `make_latest: "true"`; an already-correct retry makes no release write. This repository's Latest selection is separate from upstream release discovery. Shared workflow concurrency serializes automated publishers, but GitHub provides no compare-and-swap Latest update; avoid concurrent manual release changes during publication.
+- **Publication:** create/reuse the annotated tag through `gh api`, verify the exact tested target and annotation, then use `gh release create --verify-tag --draft`. Attach and verify the exact CI-produced [Flatpak assets](#flatpak-release-assets) before publishing the draft with `make_latest: "true"`. Conventions remain `v<version>`, annotation/title `PD2 Trader <version>`, and notes beginning `Nix packaging for upstream PD2 Trader <version>.` Native Nix binaries are served separately by Cachix. Only the eligible stable version still packaged on current `main` can publish or recover Latest. Every page of published stable version tags is checked, as is the repository's existing Latest designation; a newer version supersedes an older rerun without writes. Prereleases, unrelated releases and unverified drafts are never promoted. An unrelated/invalid existing Latest fails closed for manual investigation. Readback verifies both the exact release-tag endpoint and `/releases/latest`, including identity and release metadata, with bounded retries. Correct existing tags/releases are reused; conflicting ones are never overwritten. A validated existing release missing Latest is repaired with only `make_latest: "true"` at the release-metadata step; an already-correct retry makes no release-metadata write. This repository's Latest selection is separate from upstream release discovery. Shared workflow concurrency serializes automated publishers, but GitHub provides no compare-and-swap Latest update; avoid concurrent manual release changes during publication.
 - **Development and cleanup:** packaging/features branch from `develop` and return by reviewed PR. Before a feature release, synchronize released changes and resolve any conflicts deliberately. Use merge commits between long-lived branches to preserve ancestry; identical files do not imply identical commit history. Branch deletion remains a maintainer action after publication; never delete unfinished work just to clear ahead/behind counters.
 
 CI still builds the source package with frontend Vitest and native Cargo tests enabled, runs the flake/module/helper contracts and development-shell checks, and exercises isolated graphical startup. The lifecycle gates do not substitute a lightweight metadata test for the existing x86_64-linux build/test job.
+
+### Flatpak release assets
+
+The experimental bundle attached to **0.10.16** was built locally and uploaded
+manually, after the tagged release. Its `build-info.json` identifies the local
+packaging commit separately from the release tag and does not claim a CI run.
+Do not move the tag or rewrite that provenance to resemble an automated build.
+
+Automated Flatpak packaging and attachment are **expected starting with
+0.10.17**, once the reviewed workflows are on `main` and the eligible release's
+exact merged-main CI succeeds. Build CI converts and structurally probes the
+bundle, then uploads the explicit three-file candidate artifact. The existing
+release controller downloads the artifact from the verified run **and attempt**,
+checks its identity, metadata and checksums, and attaches those exact files to a
+draft release before publication. It never rebuilds during publication or selects
+an unrelated latest-green artifact. Ordinary feature/maintenance merges do not
+authorize another upstream application release.
+
+The controller gives assets these display labels without renaming their files:
+
+| Asset | Display label |
+| --- | --- |
+| `pd2-trader-<version>-x86_64.flatpak` | Flatpak — Linux x86_64 (experimental) |
+| `SHA256SUMS` | Flatpak — SHA-256 checksums |
+| `build-info.json` | Flatpak — Build information |
+
+On retries, matching assets are reused; a missing or outdated label may be
+repaired with a label-only metadata update after all existing bytes are checked.
+Correct labels need no write. Filename, size or digest conflicts remain hard
+failures; no `--clobber` is used, and missing files are never backfilled into an
+already published release. Both listing and individual-asset readback must match
+the expected bytes and labels before this step succeeds. GitHub's automatic
+source archives remain separate from these installable/supporting assets.
+
+A **GitHub Pages–hosted Flatpak repository is on the roadmap**. It is not enabled
+by release-asset uploads and has no deployed update remote yet. Signing/key
+management, retained repository history, update/rollback tests and atomic
+publication remain separate gates in the [Flatpak maintainer guide](../flatpak/README.md#github-pages-is-a-later-publication-step).
+For installation and manual bundle updates, use the [Flatpak user guide](flatpak.md).
 
 ### Repository setup and trust boundary
 
@@ -139,22 +179,37 @@ which is listed in [GitHub's dependency submission documentation](https://docs.g
 The submission action is pinned by full commit and uses Node.js 24. No extra
 flake input, npm dependencies, PAT, or new service is required.
 
-Two inventories are generated on PRs, pushes to `main`, and manual dispatches:
+Four inventories are generated on PRs, pushes to `main`, and manual dispatches:
 
 - **`flake.lock`:** exact locked GitHub revisions, including transitive inputs
   and resolved `follows` edges. A small SPDX adapter handles this lockfile-only
   layer; unsupported source types or malformed pins fail rather than silently
   producing an incomplete inventory. It does not update the lockfile.
-- **`native-package.nix`:** sbomnix's complete build-time derivation dependency
-  graph for `packages.x86_64-linux.default`, including Nix libraries, compilers,
-  build tools, bootstrap components, and the packaging targets. This is **not**
-  a measured runtime-only closure or an inventory of every dev-shell tool.
-  Evaluation does not compile the application. Source fetching derivations and
-  unversioned artifacts without package URLs are excluded from submission;
-  dependency paths through them are retained. A small adapter gives sbomnix's
-  root the identifier expected by the submission action so direct dependencies
-  are recognized, and handles a percent-encoded `+` compatibility issue in the
-  pinned submission toolkit. Inventory root packages may also appear in the graph.
+- **Wrapper (`package.nix`):** direct build dependencies of
+  `packages.x86_64-linux.default`, including the native application, media
+  plugins, and wrapper tooling.
+- **Native (`native-package.nix`):** direct build dependencies of
+  `packages.x86_64-linux.default.native`, including Rust tooling, GUI libraries,
+  desktop integration, and frontend/vendor derivations.
+- **Frontend (`native-package.nix`, separate correlator):** direct build
+  dependencies of `packages.x86_64-linux.frontend`, including Node.js, Python,
+  npm hooks, and the npm dependency bundle.
+
+Each package inventory uses **`--buildtime --depth 1`**. Together these report
+**Direct Nix packaging/build dependencies**, not a complete application SBOM,
+recursive build/toolchain inventory, measured runtime closure, or inventory of
+every dev-shell tool. Scanning all three layers retains the packaging inputs
+hidden behind the wrapper and separate frontend without traversing their entire
+dependency trees. Evaluation does not compile the application.
+
+Entries without package URLs are excluded; paths through them within the
+supplied inventory are retained. This is not a general patch/artifact filter:
+sbomnix can assign package URLs to patches and generated artifacts. Direct hooks,
+vendor bundles, and desktop-file derivations remain visible. A small adapter
+gives each root the identifier expected by the submission action and handles a
+percent-encoded `+` compatibility issue in the pinned submission toolkit.
+Inventory root packages may also appear in the graph; shared packages can occur
+in multiple inventories.
 
 **Upstream application lockfile scanning is deliberately excluded.** No npm or
 Cargo lockfiles are parsed or copied into this repository. Nix derivations for
@@ -169,7 +224,10 @@ A separate fresh runner with `contents: write` submits only this run's immutable
 artifact ID on this repository's `main` push/manual dispatch. It rejects stale
 main SHAs and never checks out/evaluates candidate code or runs application
 artifacts. It uses the built-in `GITHUB_TOKEN`, with separate stable correlators
-for the two manifests. No `pull_request_target` or privileged `workflow_run`
+for all four inventories. The native inventory retains the existing
+`nix-package-x86_64-linux` correlator and `native-package.nix` manifest path to
+replace the previous recursive package submission rather than add another feed.
+No `pull_request_target` or privileged `workflow_run`
 handoff is involved. Keep workflow changes under human review and protect main.
 
 **One-time setup:** a repository administrator must enable **Dependency graph**
@@ -178,7 +236,7 @@ Public repositories normally have it enabled. Organization policy must permit
 the pinned actions and the job's `contents: write` permission. Do not broaden
 the ordinary build job's token permissions or create a PAT for this workflow.
 After landing on `main`, check **Actions → Nix dependency graph**, then
-**Insights → Dependency graph → Dependencies** for both submitted manifests.
+**Insights → Dependency graph → Dependencies** for the submitted inventories.
 Dependency graph ingestion may lag the API acceptance. A successful local SBOM
 generation does not prove the remote graph is enabled or populated.
 
@@ -188,10 +246,18 @@ Local inspection (writes only beneath a disposable directory):
 node --test tests/dependency-graph.mjs
 report_dir=$(mktemp -d)
 sbomnix=$(nix build .#sbomnix --no-link --no-update-lock-file --print-out-paths)
-drv=$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.default.drvPath)
-"$sbomnix/bin/sbomnix" "$drv" --buildtime --exclude-meta --exclude-cpe-matching \
-  --cdx '' --csv '' --spdx "$report_dir/raw.json"
-node .github/scripts/prepare-nix-sbom.mjs "$report_dir/raw.json" "$report_dir/package.spdx.json"
+for target in wrapper native frontend; do
+  case "$target" in
+    wrapper) attribute=packages.x86_64-linux.default ;;
+    native) attribute=packages.x86_64-linux.default.native ;;
+    frontend) attribute=packages.x86_64-linux.frontend ;;
+  esac
+  drv=$(nix eval --no-update-lock-file --raw ".#$attribute.drvPath")
+  "$sbomnix/bin/sbomnix" "$drv" --buildtime --depth 1 --exclude-meta --exclude-cpe-matching \
+    --cdx '' --csv '' --spdx "$report_dir/$target.raw.json"
+  node .github/scripts/prepare-nix-sbom.mjs \
+    "$report_dir/$target.raw.json" "$report_dir/$target.spdx.json"
+done
 node .github/scripts/flake-lock-sbom.mjs flake.lock "$report_dir/inputs.spdx.json"
 ```
 
@@ -254,7 +320,7 @@ and [Dependabot configuration options](https://docs.github.com/en/code-security/
 The scripts use Node.js 24 and the checker has no npm dependencies. Run the offline lifecycle tests from this checkout:
 
 ```bash
-node --test tests/upstream-release.mjs tests/prepare-update.mjs tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs tests/cache-ci.mjs
+node --test tests/upstream-release.mjs tests/prepare-update.mjs tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs tests/cache-ci.mjs tests/flatpak-build.mjs tests/flatpak-release.mjs
 GITHUB_REPOSITORY=ohbe1jacobi/pd2-trader-flake node .github/scripts/check-upstream.mjs --dry-run
 ```
 

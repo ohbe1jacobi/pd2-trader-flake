@@ -39,7 +39,7 @@ The shell integrates `cachix/git-hooks.nix`, pinned in `flake.lock` and using th
 
 | Stage | Checks |
 | --- | --- |
-| Pre-commit | Built-in Nix formatting and existing package lint; Python syntax/error-level Ruff; ShellCheck and shfmt; actionlint; JSON/TOML/YAML syntax; merge markers and whitespace/EOF hygiene |
+| Pre-commit | Built-in Nix formatting; Statix/deadnix for `flake.nix`, package expressions, and `modules/*.nix`; Python syntax/error-level Ruff; ShellCheck and shfmt; actionlint; JSON/TOML/YAML syntax; merge markers and whitespace/EOF hygiene |
 | Commit-msg | Commitizen validation of Conventional Commit messages |
 | Manual only | `nix flake check`: the existing application build/Vitest/Cargo tests, packaging/module/helper contracts, and development-shell contract (including JavaScript syntax) |
 

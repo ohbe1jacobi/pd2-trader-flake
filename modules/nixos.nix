@@ -14,14 +14,27 @@ in
   imports = [
     (lib.mkAliasOptionModule
       [ "programs" "pd2-trader" "d2dir" ]
-      [ "programs" "pd2-trader" "diablo2Directory" ]
+      [ "programs" "pd2-trader" "settings" "diablo2Directory" ]
     )
     (lib.mkRemovedOptionModule [ "programs" "pd2-trader" "users" ] ''
       The NixOS module now installs PD2 Trader system-wide; move per-user
       settings up to programs.pd2-trader.*. For a single user or per-user
       settings, use the Home Manager module (homeManagerModules.default).
     '')
-  ];
+  ]
+  ++
+    map
+      (
+        name:
+        lib.mkRenamedOptionModule
+          [ "programs" "pd2-trader" name ]
+          [ "programs" "pd2-trader" "settings" name ]
+      )
+      [
+        "autoUpdateEnabled"
+        "telemetryOptOut"
+        "diablo2Directory"
+      ];
   options.programs.pd2-trader = import ./options.nix { inherit lib pkgs; };
   config = lib.mkIf cfg.enable (
     lib.mkMerge [

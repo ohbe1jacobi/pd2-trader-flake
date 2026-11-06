@@ -10,21 +10,19 @@
       args = [ "--check" ];
     };
     # The built-in Statix hook scans the tree, not its triggering filenames.
-    # Preserve the existing package lint scope using its native ignore option.
+    # Keep flake, package, and module lint aligned using its native ignore option.
     statix = {
       enable = true;
-      files = "^(native-package|package)\\.nix$";
+      files = "^((flake|native-package|package)\\.nix|modules/.*\\.nix)$";
       settings.ignore = [
-        "flake.nix"
         "devshell.nix"
         "git-hooks.nix"
-        "modules/*"
         "tests/*"
       ];
     };
     deadnix = {
       enable = true;
-      files = "^(native-package|package)\\.nix$";
+      files = "^((flake|native-package|package)\\.nix|modules/.*\\.nix)$";
     };
     ruff = {
       enable = true;
