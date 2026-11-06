@@ -95,7 +95,7 @@ test('workflow isolates submission from evaluation and never publishes PR or fea
   assert.match(generation, /pull_request:/);
   assert.match(generation, /contents: read/);
   assert.doesNotMatch(generation, /contents: write|GH_TOKEN:|pull_request_target|workflow_run/);
-  assert.match(generation, /--buildtime --exclude-meta --exclude-cpe-matching/);
+  assert.match(generation, /--buildtime --depth 1 --exclude-meta --exclude-cpe-matching/);
   assert.match(generation, /--no-update-lock-file/);
   assert.match(submission, /github\.ref == 'refs\/heads\/main'/);
   assert.match(submission, /github\.event_name == 'push'/);
@@ -103,9 +103,31 @@ test('workflow isolates submission from evaluation and never publishes PR or fea
   assert.match(submission, /contents: write/);
   assert.match(submission, /artifact-ids: \$\{\{ needs\.generate\.outputs\.artifact-id \}\}/);
   assert.doesNotMatch(submission, /install-nix-action|nix (build|eval|develop)|node \.github|actions\/checkout/);
-  assert.equal((submission.match(/advanced-security\/spdx-dependency-submission-action@[a-f0-9]{40}/g) ?? []).length, 2);
+  assert.equal((submission.match(/advanced-security\/spdx-dependency-submission-action@[a-f0-9]{40}/g) ?? []).length, 4);
   assert.match(submission, /manifestPath: flake.lock/);
   assert.match(submission, /manifestPath: native-package.nix/);
+});
+
+test('workflow inventories wrapper, native and frontend directly with stable separate submissions', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/dependency-graph.yml', import.meta.url), 'utf8');
+  const [generation, submission] = workflow.split('\n  submit:');
+  assert.match(generation, /for target in wrapper native frontend; do/);
+  for (const setting of [
+    'wrapper) attribute=packages.x86_64-linux.default ;;',
+    'native) attribute=packages.x86_64-linux.default.native ;;',
+    'frontend) attribute=packages.x86_64-linux.frontend ;;',
+  ]) assert.ok(generation.includes(setting), `Missing target: ${setting}`);
+  assert.match(generation, /--raw "\.#\$attribute\.drvPath"/);
+  assert.match(generation, /--spdx "\$RUNNER_TEMP\/\$target\.raw\.json"/);
+  assert.match(generation, /"\$RUNNER_TEMP\/\$target\.raw\.json" "\$RUNNER_TEMP\/nix-sboms\/\$target\.spdx\.json"/);
+  const inventories = [...submission.matchAll(/filePattern: (\S+)\n\s+manifestPath: (\S+)\n\s+correlator: (\S+)/g)]
+    .map(([, file, manifest, correlator]) => ({ file, manifest, correlator }));
+  assert.deepEqual(inventories, [
+    { file: 'inputs.spdx.json', manifest: 'flake.lock', correlator: 'nix-flake-inputs' },
+    { file: 'native.spdx.json', manifest: 'native-package.nix', correlator: 'nix-package-x86_64-linux' },
+    { file: 'wrapper.spdx.json', manifest: 'package.nix', correlator: 'nix-wrapper-x86_64-linux' },
+    { file: 'frontend.spdx.json', manifest: 'native-package.nix', correlator: 'nix-frontend-x86_64-linux' },
+  ]);
 });
 
 test('sbomnix versions containing plus survive the submission toolkit parser', async () => {
