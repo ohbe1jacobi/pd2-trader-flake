@@ -12,17 +12,25 @@
   inputs.home-manager.inputs.nixpkgs.follows = "nixpkgs";
   inputs.git-hooks.url = "github:cachix/git-hooks.nix";
   inputs.git-hooks.inputs.nixpkgs.follows = "nixpkgs";
+  # Experimental converter; pin independently without changing application inputs.
+  inputs.nix2flatpak.url = "github:neobrain/nix2flatpak/7731e8b3fca73879f8217de5a919c0a5d17303de";
+  inputs.nix2flatpak.inputs.nixpkgs.follows = "nixpkgs";
   outputs =
     {
       self,
       nixpkgs,
       home-manager,
       git-hooks,
+      nix2flatpak,
     }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       package = pkgs.callPackage ./package.nix { };
+      flatpakPrototype = pkgs.callPackage ./flatpak/prototype.nix {
+        inherit package;
+        mkFlatpak = nix2flatpak.lib.${system}.mkFlatpak;
+      };
       automationTools = import ./automation-tools.nix { inherit pkgs; };
       preCommitCheck = git-hooks.lib.${system}.run (
         (import ./git-hooks.nix { inherit pkgs; })
@@ -37,6 +45,9 @@
         pd2-trader = package;
         default = package;
         frontend = package.frontend;
+        # Explicit opt-in targets, not part of the default application build.
+        flatpak-prototype = flatpakPrototype.bundle;
+        flatpak-repo-prototype = flatpakPrototype.repository;
         # Inventory tooling follows the committed nixpkgs pin, not a new input.
         sbomnix = pkgs.sbomnix;
         # Maintainer tooling uses the same locked package set, with nix-update
@@ -70,6 +81,8 @@
       nixosModules.default = self.nixosModules.pd2-trader;
       checks.${system} = {
         pre-commit = preCommitCheck;
+        # Isolated settings/launcher test; does not build or launch the Flatpak app.
+        flatpak-launcher = import ./tests/flatpak-launcher.nix { inherit pkgs; };
         dependency-graph =
           pkgs.runCommand "pd2-trader-dependency-graph-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
             ''
@@ -120,8 +133,10 @@
               cp ${./tests/update-integration.mjs} tests/update-integration.mjs
               cp ${./tests/release-lifecycle.mjs} tests/release-lifecycle.mjs
               cp ${./tests/release-scenarios.mjs} tests/release-scenarios.mjs
+              cp ${./tests/flatpak-release.mjs} tests/flatpak-release.mjs
               node --test tests/upstream-release.mjs tests/prepare-update.mjs \
-                tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs
+                tests/update-integration.mjs tests/release-lifecycle.mjs tests/release-scenarios.mjs \
+                tests/flatpak-release.mjs
               touch "$out"
             '';
 
@@ -221,7 +236,7 @@
         name = "format-pd2-trader";
         runtimeInputs = [ pkgs.nixfmt ];
         text = ''
-          if [ "$#" -eq 0 ]; then set -- flake.nix package.nix native-package.nix devshell.nix git-hooks.nix modules/*.nix tests/*.nix; fi
+          if [ "$#" -eq 0 ]; then set -- flake.nix package.nix native-package.nix devshell.nix git-hooks.nix modules/*.nix tests/*.nix flatpak/*.nix; fi
           exec nixfmt "$@"
         '';
       };

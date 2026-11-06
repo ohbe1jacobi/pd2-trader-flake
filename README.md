@@ -94,6 +94,12 @@ See the [installation guide](docs/installation.md) for removal and profile-insta
 - [Contributing](CONTRIBUTING.md): development shell, package structure, hooks, and checks.
 - [Maintainer guide](docs/maintaining.md): version updates, release/cache automation, permissions, and recovery.
 
+## Experimental Flatpak
+
+We also build an experimental Flatpak bundle for Linux users without Nix.
+Release downloads are not available yet. See the [Flatpak installation and
+configuration guide](docs/flatpak.md), including its important updater warning.
+
 ## License
 
 The Nix packaging, modules, and helpers are MIT licensed; see [LICENSE](LICENSE). Upstream copyright attribution is retained in the license.

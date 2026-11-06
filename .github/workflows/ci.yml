@@ -90,6 +90,30 @@ jobs:
         if: steps.gate.outputs.mirror != 'true'
         run: nix build --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
 
+      - name: Test Flatpak artifact preparation
+        if: steps.gate.outputs.mirror != 'true'
+        run: node --test tests/flatpak-build.mjs
+
+      - name: Check Flatpak launcher contract
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix build .#checks.x86_64-linux.flatpak-launcher --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      - name: Convert and structurally probe Flatpak bundle
+        id: flatpak-build
+        if: steps.gate.outputs.mirror != 'true'
+        run: node .github/scripts/flatpak-build.mjs
+
+      # Retain converter output even on a failed conversion, separately from
+      # the exact three-file release candidate. A mirror produces neither.
+      - name: Upload Flatpak diagnostics
+        if: always() && steps.gate.outputs.mirror != 'true' && (steps.flatpak-build.outcome == 'success' || steps.flatpak-build.outcome == 'failure')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flatpak-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: flatpak-diagnostics/
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Run all flake integration contracts
         if: steps.gate.outputs.mirror != 'true'
         run: nix flake check --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
@@ -103,6 +127,15 @@ jobs:
         # Candidate GUI code remains inside Nix's sandbox, never the runner
         # which subsequently exports artifacts destined for a signing cache.
         run: nix build .#checks.x86_64-linux.cache-smoke --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      - name: Upload Flatpak artifact
+        if: steps.gate.outputs.mirror != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flatpak-${{ github.run_id }}-${{ github.run_attempt }}
+          path: flatpak-artifact/
+          if-no-files-found: error
+          compression-level: 0
 
       # Export data without a token. Generated-dispatch artifacts are NOT
       # authorized for signing until the separate main-only controller proves

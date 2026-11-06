@@ -41,16 +41,23 @@ test('flake inputs retain exact revisions, transitive edges and follows without 
   const { lockToSpdx } = await import('../.github/scripts/flake-lock-sbom.mjs');
   const sbom = lockToSpdx(pinned);
   assert.equal(sbom.spdxVersion, 'SPDX-2.3');
-  assert.equal(sbom.packages.length, 5);
+  assert.equal(sbom.packages.length, 8);
   const byName = Object.fromEntries(sbom.packages.map(pkg => [pkg.name, pkg]));
   const nixpkgs = byName['NixOS/nixpkgs'];
   assert.equal(nixpkgs.versionInfo, pinned.nodes.nixpkgs.locked.rev);
   assert.equal(nixpkgs.externalRefs[0].referenceLocator,
     `pkg:github/NixOS/nixpkgs@${pinned.nodes.nixpkgs.locked.rev}`);
   const edges = sbom.relationships.filter(edge => edge.relationshipType === 'DEPENDS_ON');
-  assert.equal(edges.length, 6);
+  assert.equal(edges.length, 10);
   assert.ok(edges.some(edge => edge.spdxElementId === byName['cachix/git-hooks.nix'].SPDXID
     && edge.relatedSpdxElement === nixpkgs.SPDXID));
+  // The converter follows the same stable nixpkgs, but brings two tool inputs.
+  for (const [from, to] of [
+    ['neobrain/nix2flatpak', 'NixOS/nixpkgs'],
+    ['neobrain/nix2flatpak', 'numtide/flake-utils'],
+    ['numtide/flake-utils', 'nix-systems/default'],
+  ]) assert.ok(edges.some(edge => edge.spdxElementId === byName[from].SPDXID
+    && edge.relatedSpdxElement === byName[to].SPDXID), `${from} -> ${to}`);
   assert.equal(new Set(sbom.packages.map(pkg => pkg.SPDXID)).size, sbom.packages.length);
   assert.deepEqual(lockToSpdx(pinned), sbom, 'output must be deterministic');
 });
