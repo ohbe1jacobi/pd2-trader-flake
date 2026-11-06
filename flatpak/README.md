@@ -20,6 +20,9 @@ nix build .#flatpak-repo-prototype --out-link result-flatpak-repo --max-jobs 1 -
 - App ID: `io.github.ohbe1jacobi.PD2Trader`
 - Application branch/architecture: `stable` / `x86_64`
 - Runtime: `org.gnome.Platform/x86_64/51` from Flathub (separate download)
+- Bundles embed Flathub's `.flatpakrepo` URL for automatic runtime discovery;
+  users install the app bundle and approve Flatpak's prompts, not a separate
+  GNOME runtime command.
 - Converter: tracks `main`, with its exact revision fixed by `flake.lock` and
   updates proposed through the reviewed weekly Dependabot PR. The prototype
   audit used revision `7731e8b3fca73879f8217de5a919c0a5d17303de`.
@@ -40,6 +43,21 @@ and `build-info.json`. The separate `result-flatpak-repo` is an HTTP-servable
 OSTree `archive-z2` repository with a summary and application ref. This extra
 export is needed because this converter revision discards its temporary repo.
 Neither output is signed; the separate repository is not a hosted update channel.
+
+### CI runtime discovery
+
+`flatpak/prototype.nix` adds Flathub's `--runtime-repo` URL during initial bundle
+export and checks the emitted bytes with libflatpak before CI artifact upload.
+The pinned converter has no parameter for this option; review the guarded
+override when updating it. The metadata contract covers correct, missing and
+incorrect URLs plus malformed input:
+
+```bash
+nix build .#checks.x86_64-linux.flatpak-runtime-repo --no-link --max-jobs 1 --cores 1 -L
+```
+
+These checks do not install apps/runtimes or test a full first-install transaction.
+Runtime discovery does not create a Trader update channel.
 
 ## Test repository discovery without installing anything
 
@@ -76,7 +94,12 @@ Installation, GNOME 51 runtime setup, persistent `PD2_TRADER_D2_DIR` configurati
 the exact narrow `ProjectD2/pd2logs:create` grant, replacement bundles and cleanup
 are documented once in the [Flatpak user guide](../docs/flatpak.md). Follow that
 guide only when explicitly ready to modify a desktop installation. There is no
-published bundle download or hosted application update channel yet.
+hosted application update channel yet. A locally built experimental bundle was
+manually attached to the 0.10.16 release; its build information records the
+packaging commit separately from the older release tag. Automated packaging and
+release-asset uploads are expected starting with 0.10.17, subject to CI and the
+existing release gates, not as a claim that this path has already published a
+release.
 
 > **Pinned 0.10.16 updater warning:** Disable automatic updates and do not use
 > manual, toast or About-page install/update actions. The launcher preserves
@@ -145,6 +168,9 @@ Flatpak-specific wording; preventing installation and good update guidance are
 separate requirements.
 
 ## GitHub Pages is a later publication step
+
+Hosting a Flatpak repository on GitHub Pages is on the roadmap, not a currently
+available update service. Downloadable release bundles are a separate step.
 
 Do not upload this unsigned prototype to Pages. Before enabling publication:
 

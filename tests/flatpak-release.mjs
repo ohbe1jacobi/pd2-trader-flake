@@ -12,6 +12,11 @@ const expected = { schema: 1, version: '0.10.16', appId: 'io.github.ohbe1jacobi.
   runId: 12, runAttempt: 2, bundle: 'pd2-trader-0.10.16-x86_64.flatpak' };
 const artifact = { id: 9, name: 'flatpak-12-2', expired: false, digest: `sha256:${'b'.repeat(64)}`,
   workflow_run: { id: 12, head_sha: commit, head_branch: 'main' } };
+const labels = {
+  [expected.bundle]: 'Flatpak — Linux x86_64 (experimental)',
+  SHA256SUMS: 'Flatpak — SHA-256 checksums',
+  'build-info.json': 'Flatpak — Build information',
+};
 const digest = data => createHash('sha256').update(data).digest('hex');
 async function fixture(fn) {
   const dir = await mkdtemp(join(process.env.TMPDIR, 'flatpak-release-test-'));
@@ -72,8 +77,10 @@ test('upload missing assets, read them back, and reuse only matching existing as
   };
   const runCommand = (_cmd, args) => {
     commands.push(args);
-    const file = files.find(item => args.includes(item.path));
-    stored.push({ id: stored.length + 1, name: file.name, size: file.size, state: 'uploaded', digest: `sha256:${file.sha256}` });
+    const file = files.find(item => args.includes(`${item.path}#${labels[item.name]}`));
+    assert.ok(file, 'upload must attach the display label without renaming the file');
+    assert.equal(args.includes('--clobber'), false);
+    stored.push({ id: stored.length + 1, name: file.name, label: labels[file.name], size: file.size, state: 'uploaded', digest: `sha256:${file.sha256}` });
     return { status: 0 };
   };
   await ensureAssets({ repository: 'owner/repo', release: { id: 10, tag_name: 'v0.10.16', draft: true }, files, request, runCommand });
@@ -90,4 +97,59 @@ test('never backfill a published release or hide an upload failure', async () =>
   assert.equal(commands, 0);
   await assert.rejects(ensureAssets({ repository: 'owner/repo', release: { id: 10, tag_name: 'v0.10.16', draft: true }, files, request, runCommand }), /upload failed/);
   assert.equal(commands, 1);
+}));
+test('repair only labels on byte-matching existing assets and make retries read-only', async () => fixture(async dir => {
+  const files = await validateFiles(dir, expected);
+  for (const draft of [true, false]) {
+    const stored = files.map((file, index) => ({ id: index + 1, name: file.name, label: index ? 'old label' : null,
+      size: file.size, state: 'uploaded', digest: `sha256:${file.sha256}` }));
+    const writes = [];
+    const request = async (path, options = {}) => {
+      if (path.includes('/assets?')) return stored;
+      const asset = stored.find(item => path.endsWith(`/assets/${item.id}`));
+      assert.ok(asset, `unexpected endpoint: ${path}`);
+      if (options.method) {
+        assert.equal(options.method, 'PATCH');
+        assert.deepEqual(options.body, { label: labels[asset.name] });
+        writes.push(path);
+        Object.assign(asset, options.body);
+      }
+      return asset;
+    };
+    const options = { repository: 'owner/repo', release: { id: 10, tag_name: 'v0.10.16', draft }, files, request,
+      runCommand: () => assert.fail('matching existing bytes must never be reuploaded') };
+    await ensureAssets(options);
+    assert.equal(writes.length, 3);
+    assert.deepEqual(stored.map(asset => asset.label), files.map(file => labels[file.name]));
+    await ensureAssets(options);
+    assert.equal(writes.length, 3, 'correct labels must make a retry read-only');
+    stored[0].label = null;
+    stored.at(-1).digest = `sha256:${'0'.repeat(64)}`;
+    await assert.rejects(ensureAssets(options), /asset conflict/i);
+    assert.equal(writes.length, 3, 'all byte conflicts must be detected before label writes');
+  }
+}));
+test('verify uploaded labels in both release listing and individual asset readback', async () => fixture(async dir => {
+  const files = await validateFiles(dir, expected);
+  for (const mismatch of ['listing', 'individual']) {
+    const stored = [];
+    let lists = 0;
+    const request = async path => {
+      if (path.includes('/assets?')) {
+        lists++;
+        return lists > 1 && mismatch === 'listing' ? stored.map(asset => ({ ...asset, label: null })) : stored;
+      }
+      const asset = stored.find(item => path.endsWith(`/assets/${item.id}`));
+      return mismatch === 'individual' ? { ...asset, label: 'wrong label' } : asset;
+    };
+    const runCommand = (_cmd, args) => {
+      const file = files.find(item => args.includes(`${item.path}#${labels[item.name]}`));
+      assert.ok(file);
+      stored.push({ id: stored.length + 1, name: file.name, label: labels[file.name], size: file.size,
+        state: 'uploaded', digest: `sha256:${file.sha256}` });
+      return { status: 0 };
+    };
+    await assert.rejects(ensureAssets({ repository: 'owner/repo', release: { id: 10, tag_name: 'v0.10.16', draft: true },
+      files, request, runCommand }), /asset readback mismatch/i, mismatch);
+  }
 }));

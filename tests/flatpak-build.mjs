@@ -11,6 +11,15 @@ const revision = '7731e8b3fca73879f8217de5a919c0a5d17303de';
 const appId = 'io.github.ohbe1jacobi.PD2Trader';
 const commit = 'a'.repeat(40);
 const bundle = 'pd2-trader-0.10.16-x86_64.flatpak';
+test('CI builds bundles with runtime discovery and checks the emitted bytes', () => {
+  const prototype = readFileSync(new URL('../flatpak/prototype.nix', import.meta.url), 'utf8');
+  assert.match(prototype, /--runtime-repo=\$\{runtimeRepo\}/);
+  assert.match(prototype, /doInstallCheck = true/);
+  assert.match(prototype, /probe-runtime-repo.*\$out\/\$\{appId\}\.flatpak/);
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /\.#checks\.x86_64-linux\.flatpak-runtime-repo/);
+});
+
 function fixture(t, { exit = 0, warning = 'WARNING: informational libstdc++ detection warning', lockRevision = revision, evaluatedRevision = lockRevision } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'flatpak-build-test-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
