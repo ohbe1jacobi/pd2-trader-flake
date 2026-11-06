@@ -4,6 +4,30 @@ import { test } from 'node:test';
 import * as lifecycle from '../.github/scripts/release-lifecycle.mjs';
 
 const sha = 'a'.repeat(40);
+
+test('failed asset transfer cannot make a new release public', async () => {
+  const calls = [];
+  const state = publicationFixture();
+  state.release = null;
+  state.releases = [];
+  state.intercept = async path => {
+    if (path.endsWith('/releases/tags/v0.10.10')) {
+      if (!state.release) throw Object.assign(new Error('Not Found'), { status: 404 });
+      return state.release;
+    }
+  };
+  state.runCommand = (_command, args) => {
+    calls.push(args);
+    assert.ok(args.includes('--draft'), 'release must start as a draft');
+    state.release = { id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10',
+      body: state.notes, draft: true, prerelease: false };
+    return { status: 0 };
+  };
+  state.attachAssets = async () => { throw new Error('asset upload failed'); };
+  await assert.rejects(lifecycle.publish(state), /asset upload failed/);
+  assert.equal(state.release.draft, true);
+  assert.equal(calls.length, 1);
+});
 // All writes and command execution below are offline fixtures, never GitHub calls.
 function publicationFixture() {
   const release = { id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10',
@@ -33,7 +57,7 @@ function publicationFixture() {
     assert.fail(`Unexpected fixture call ${path}`);
   };
   return Object.assign(state, { request, repository: 'owner/repo', version: '0.10.10', commit: sha,
-    notes: release.body, delay: async () => {}, runCommand: (...args) => { state.commands.push(args); assert.fail('must not recreate existing release'); } });
+    notes: release.body, attachAssets: async () => {}, delay: async () => {}, runCommand: (...args) => { state.commands.push(args); assert.fail('must not recreate existing release'); } });
 }
 
 test('existing eligible stable release recovers Latest once and verifies the designation on retry', async () => {
@@ -65,7 +89,7 @@ test('already correct Latest is read back without any mutation', async () => {
   assert.ok(state.calls.filter(([path]) => path.endsWith('/releases/latest')).length >= 2);
 });
 test('draft, prerelease, unrelated and conflicting releases are never promoted', async () => {
-  for (const change of [{ draft: true }, { prerelease: true }, { name: 'feature release' }, { tag_name: 'feature-v0.10.10' }, { body: 'wrong provenance' }]) {
+  for (const change of [{ draft: 'invalid' }, { prerelease: true }, { name: 'feature release' }, { tag_name: 'feature-v0.10.10' }, { body: 'wrong provenance' }]) {
     const state = publicationFixture(); state.release = { ...state.release, ...change };
     await assert.rejects(lifecycle.publish(state), /Release readback mismatch/);
     assert.equal(state.calls.some(([, options]) => options.method), false);
@@ -120,13 +144,16 @@ test('successful create command alone cannot establish Latest and is not repeate
   state.release = null; state.releases = [];
   state.runCommand = (command, args) => {
     state.commands.push([command, args]);
-    assert.ok(args.includes('--latest=true'));
-    state.release = release;
+    assert.ok(args.includes('--draft'));
+    state.release = { ...release, draft: true };
     return { status: 0 };
+  };
+  state.intercept = async (_path, options) => {
+    if (options.method === 'PATCH') { state.release.draft = false; return state.release; }
   };
   await assert.rejects(lifecycle.publish(state), /Latest release readback mismatch/);
   assert.equal(state.commands.length, 1);
-  assert.equal(state.calls.some(([, options]) => options.method === 'PATCH'), false);
+  assert.equal(state.calls.filter(([, options]) => options.method === 'PATCH').length, 1);
 });
 test('main advancing during tag lookup prevents stale new release creation', async () => {
   const state = publicationFixture(); const release = state.release; state.release = null; state.releases = [];
@@ -196,9 +223,10 @@ test('tag publication reuses an annotated exact target, rejects conflicts and re
     if (path.includes('/contents/native-package.nix?')) return { encoding: 'base64', content: Buffer.from('version = "0.10.10";').toString('base64') };
     if (path.includes('/releases?')) return release ? [release] : [];
     if (path.endsWith('/releases/latest')) {
-      if (!release) throw Object.assign(new Error('Not Found'), { status: 404 });
+      if (!release || release.draft) throw Object.assign(new Error('Not Found'), { status: 404 });
       return release;
     }
+    if (path.endsWith('/releases/10') && options.method === 'PATCH') { release.draft = false; return release; }
     if (path.includes('/matching-refs/')) return ref ? [ref] : [];
     if (path.endsWith('/git/tags') && options.method === 'POST') {
       assert.equal(options.body.object, sha);
@@ -218,11 +246,11 @@ test('tag publication reuses an annotated exact target, rejects conflicts and re
   const runCommand = (command, args) => {
     commands.push([command, args]);
     assert.ok(args.includes('--verify-tag'));
-    assert.ok(args.includes('--latest=true'), 'new stable release explicitly selects Latest');
-    release = { id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10', body: args[args.indexOf('--notes') + 1], draft: false, prerelease: false, html_url: 'fixture' };
+    assert.ok(args.includes('--draft'), 'new release starts as draft');
+    release = { id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10', body: args[args.indexOf('--notes') + 1], draft: true, prerelease: false, html_url: 'fixture' };
     return { status: 0 };
   };
-  const input = { request, repository: 'owner/repo', version: '0.10.10', commit: sha, notes: `Nix packaging for upstream PD2 Trader 0.10.10.\nTested ${sha}`, runCommand };
+  const input = { request, repository: 'owner/repo', version: '0.10.10', commit: sha, notes: `Nix packaging for upstream PD2 Trader 0.10.10.\nTested ${sha}`, runCommand, attachAssets: async () => {} };
   await lifecycle.publish(input);
   await lifecycle.publish(input);
   assert.equal(commands.length, 1);
@@ -240,7 +268,7 @@ test('release readback retries only absent/transient responses without duplicate
   for (const statuses of [[404, 404, 503, 200], [403], [404, 404, 404, 404]]) {
     let reads = 0, creates = 0;
     const waits = [];
-    const input = { repository: 'owner/repo', version: '0.10.10', commit: sha, notes: good.body,
+    const input = { repository: 'owner/repo', version: '0.10.10', commit: sha, notes: good.body, attachAssets: async () => {},
       delay: async ms => waits.push(ms), request: async path => {
         if (path.endsWith('/git/matching-refs/heads/main')) return [{ ref: 'refs/heads/main', object: { sha } }];
         if (path.includes('/contents/native-package.nix?')) return { encoding: 'base64', content: Buffer.from('version = "0.10.10";').toString('base64') };
@@ -267,7 +295,7 @@ test('release readback retries only absent/transient responses without duplicate
 });
 
 test('release conflicts report mismatched fields and never recreate', async () => {
-  await assert.rejects(lifecycle.publish({ repository: 'owner/repo', version: '0.10.10', commit: sha,
+  await assert.rejects(lifecycle.publish({ repository: 'owner/repo', version: '0.10.10', commit: sha, attachAssets: async () => {},
     request: async path => {
       if (path.endsWith('/git/matching-refs/heads/main')) return [{ ref: 'refs/heads/main', object: { sha } }];
       if (path.includes('/contents/native-package.nix?')) return { encoding: 'base64', content: Buffer.from('version = "0.10.10";').toString('base64') };
@@ -276,7 +304,7 @@ test('release conflicts report mismatched fields and never recreate', async () =
       if (path.includes('/matching-refs/')) return [{ ref: 'refs/tags/v0.10.10', object: { type: 'tag', sha } }];
       if (path.includes('/git/tags/')) return { tag: 'v0.10.10', message: 'PD2 Trader 0.10.10', object: { type: 'commit', sha } };
       return { tag_name: 'v0.10.10', name: 'wrong', draft: true, prerelease: false, body: 'wrong' };
-    }, runCommand: () => assert.fail('must not recreate conflict') }), /name.*draft.*body/);
+    }, runCommand: () => assert.fail('must not recreate conflict') }), /name.*body/);
 });
 
 test('closed existing PRs and mismatched dispatch heads fail without writes', async () => {
@@ -297,7 +325,9 @@ test('completion requires real successful jobs and eligible PRs before publicati
       assert.notEqual(options.method, 'POST');
       if (path.endsWith('/workflows/ci.yml')) return { id: 7 };
       if (path.endsWith('/runs/1')) return run;
-      if (path.includes('/jobs?')) return { jobs: [{ name: 'Nix build and tests (x86_64-linux)', conclusion }], total_count: 1 };
+      if (path.includes('/jobs?')) return { jobs: [{ name: 'Nix build and tests (x86_64-linux)', conclusion, steps: [
+        'Check Flatpak launcher contract', 'Convert and structurally probe Flatpak bundle', 'Upload Flatpak artifact',
+      ].map(name => ({ name, conclusion: 'success' })) }], total_count: 1 };
       if (path.includes('/pulls?')) return [];
       throw new Error(`Unexpected ${path}`);
     };

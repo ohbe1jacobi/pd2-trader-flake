@@ -156,7 +156,7 @@ test('cache artifact actions use the verified Node 24 release pins', () => {
   ]);
   const actions = ['.github/workflows/ci.yml', '.github/workflows/cache-generated.yml']
     .flatMap(path => [...read(path).matchAll(/uses: actions\/(upload-artifact|download-artifact)@([^\s]+) # ([^\s]+)/g)]);
-  assert.equal(actions.length, 3, 'one upload and both isolated publisher downloads must be covered');
+  assert.equal(actions.length, 5, 'cache and Flatpak artifact actions must be covered');
   for (const [, action, pin, version] of actions) {
     assert.deepEqual([pin, version], pins.get(action), `${action} must use its verified Node 24 release`);
   }
@@ -165,12 +165,12 @@ test('cache artifact actions use the verified Node 24 release pins', () => {
 test('cache artifact runtime updates preserve exact-run transfer and extraction contracts', () => {
   const ci = read('.github/workflows/ci.yml');
   const generated = read('.github/workflows/cache-generated.yml');
-  const artifactStep = (workflow, action) => {
-    const steps = workflow.split(/\n      - name:/).filter(step => step.includes(`uses: actions/${action}@`));
+  const artifactStep = (workflow, action, marker) => {
+    const steps = workflow.split(/\n      - name:/).filter(step => step.includes(`uses: actions/${action}@`) && (!marker || step.includes(marker)));
     assert.equal(steps.length, 1);
     return steps[0];
   };
-  const upload = artifactStep(ci, 'upload-artifact');
+  const upload = artifactStep(ci, 'upload-artifact', 'trusted-cache-');
   const download = artifactStep(ci, 'download-artifact');
   const authenticated = artifactStep(generated, 'download-artifact');
   for (const step of [upload, download]) {

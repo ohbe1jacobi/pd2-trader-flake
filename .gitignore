@@ -6,9 +6,11 @@
 !/AGENTS.md
 !/CONTRIBUTING.md
 !/docs/installation.md
+!/docs/flatpak.md
 !/docs/configuration.md
 !/docs/troubleshooting.md
 !/docs/maintaining.md
+!/flatpak/README.md
 
 # Optional development checkout, historical packaging, and local diagnostics.
 /upstream/
@@ -41,6 +43,7 @@ __pycache__/
 *.AppImage
 *.deb
 *.rpm
+*.flatpak
 *.zip
 *.tar
 *.tar.*

@@ -17,7 +17,9 @@ function scenario(branch = 'main') {
   const state = { run, pr, refs, releases, writes, after: before.replace('0.10.9', '0.10.10'),
     files: [{ filename: 'native-package.nix', status: 'modified' }, { filename: 'README.md', status: 'modified' }],
     parents: [{ sha: base }], trusted: true, mode: '100644', jobs: [
-      { name: 'Nix build and tests (x86_64-linux)', conclusion: 'success' },
+      { name: 'Nix build and tests (x86_64-linux)', conclusion: 'success', steps: [
+        'Check Flatpak launcher contract', 'Convert and structurally probe Flatpak bundle', 'Upload Flatpak artifact',
+      ].map(name => ({ name, conclusion: 'success' })) },
       { name: 'Publish trusted application cache', conclusion: 'success' },
     ] };
   const request = async (path, options = {}) => {
@@ -29,7 +31,10 @@ function scenario(branch = 'main') {
       if (!state.latest) throw Object.assign(new Error('Not Found'), { status: 404 });
       return state.latest;
     }
-    if (path.endsWith('/releases/10') && options.method === 'PATCH') { state.latest = releases[0]; return releases[0]; }
+    if (path.endsWith('/releases/10') && options.method === 'PATCH') {
+      if (body.draft === false) releases[0].draft = false;
+      state.latest = releases[0]; return releases[0];
+    }
     if (path.endsWith('/runs/11/attempts/1')) return { ...run, run_attempt: 1 };
     if (path.endsWith('/workflows/ci.yml')) return { id: 7 };
     if (path.endsWith('/runs/11')) return run;
@@ -37,6 +42,8 @@ function scenario(branch = 'main') {
     if (path.includes('/commits/') && path.includes('/pulls?')) return [pr];
     if (path.endsWith('/pulls/1')) return pr;
     if (path.includes('/contents/')) {
+      if (path.includes('/contents/flake.lock?')) return { type: 'file', encoding: 'base64', content: Buffer.from(JSON.stringify({ root: 'root', nodes: { root: { inputs: { nix2flatpak: 'converter' } }, converter: { locked: { type: 'github', owner: 'neobrain', repo: 'nix2flatpak', rev: '7'.repeat(40) } } } })).toString('base64') };
+      if (path.includes('/contents/flatpak/prototype.nix?')) return { type: 'file', encoding: 'base64', content: Buffer.from('appId = "io.github.ohbe1jacobi.PD2Trader";\nruntime = "org.gnome.Platform/51";\nskipAbiChecks = false;').toString('base64') };
       const original = path.endsWith(`ref=${base}`);
       const text = path.includes('native-package.nix') ? (original ? before : state.after) : `Builds the pinned upstream **${original ? '0.10.9' : '0.10.10'}** release.`;
       return { type: 'file', encoding: 'base64', content: Buffer.from(text).toString('base64') };
@@ -71,13 +78,23 @@ function scenario(branch = 'main') {
   };
   const runCommand = (command, args) => {
     assert.equal(command, 'gh'); assert.ok(args.includes('--verify-tag'));
-    assert.ok(args.includes('--latest=true'));
-    releases.push({ id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10', body: args[args.indexOf('--notes') + 1], draft: false, prerelease: false, html_url: 'https://fixture/release' });
-    state.latest = releases[0];
+    assert.ok(args.includes('--draft'));
+    releases.push({ id: 10, tag_name: 'v0.10.10', name: 'PD2 Trader 0.10.10', body: args[args.indexOf('--notes') + 1], draft: true, prerelease: false, html_url: 'https://fixture/release' });
     return { status: 0 };
   };
-  return Object.assign(state, { request, runCommand, eventRun: { ...run }, repository });
+  return Object.assign(state, { request, runCommand, eventRun: { ...run }, repository,
+    withArtifact: async (options, callback) => {
+      assert.equal(options.run.id, run.id); assert.equal(options.expected.commit, commit);
+      assert.equal(options.expected.runAttempt, run.run_attempt);
+      return callback([]);
+    }, attachAssets: async () => {} });
 }
+test('missing exact-run Flatpak artifact prevents tag or release writes', async () => {
+  const state = scenario();
+  state.withArtifact = async () => { throw new Error('missing exact-run artifact'); };
+  await assert.rejects(completeCI(state), /missing exact-run artifact/);
+  assert.equal(state.writes.length, 0);
+});
 test('merged main CI publishes exact tested SHA once with no promotion or backmerge', async () => {
   const state = scenario();
   const first = await completeCI(state);
@@ -150,6 +167,18 @@ test('extra cache job cannot substitute for a missing, failed, skipped or ambigu
   ]) {
     const state = scenario(); state.jobs = jobs;
     await assert.rejects(completeCI(state), /successful CI job/);
+    assert.equal(state.writes.length, 0);
+  }
+});
+test('a successful job with skipped or failed Flatpak steps cannot publish', async () => {
+  for (const conclusion of ['skipped', 'failure']) {
+    const state = scenario();
+    state.jobs[0].steps = [
+      { name: 'Check Flatpak launcher contract', conclusion: 'success' },
+      { name: 'Convert and structurally probe Flatpak bundle', conclusion },
+      { name: 'Upload Flatpak artifact', conclusion: 'success' },
+    ];
+    await assert.rejects(completeCI(state), /Flatpak.*step/);
     assert.equal(state.writes.length, 0);
   }
 });

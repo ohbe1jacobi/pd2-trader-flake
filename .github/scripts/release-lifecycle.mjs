@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { compareVersions, createRequest, readPinnedVersion } from './check-upstream.mjs';
 import { validateGeneratedUpdate } from './prepare-update.mjs';
+import { withArtifact, ensureAssets } from './flatpak-release.mjs';
 
 export function version(value) {
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value ?? '')) throw new Error('Invalid version');
@@ -100,9 +101,10 @@ export async function validateIssue(request, repository, v, number, allowClosed 
   return issue;
 }
 
-export async function publish({ request, repository, version: v, commit, notes, runCommand,
+export async function publish({ request, repository, version: v, commit, notes, runCommand, attachAssets,
   delay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   version(v); sha(commit);
+  if (typeof attachAssets !== 'function') throw new Error('Verified Flatpak assets required');
   const tag = `v${v}`;
   const title = `PD2 Trader ${v}`;
   const findLatest = async () => {
@@ -140,7 +142,12 @@ export async function publish({ request, repository, version: v, commit, notes, 
   if (object.object?.type !== 'commit' || object.object.sha !== commit || object.tag !== tag || object.message.trim() !== title) throw new Error('Tag conflict: target/annotation mismatch');
   const findRelease = async () => {
     try { return await request(`/repos/${repository}/releases/tags/${tag}`); }
-    catch (error) { if (error.status === 404) return null; throw error; }
+    catch (error) {
+      if (error.status !== 404) throw error;
+      const drafts = (await pages(request, `/repos/${repository}/releases`)).filter(item => item.tag_name === tag && item.draft === true);
+      if (drafts.length > 1) throw new Error('Ambiguous draft releases');
+      return drafts[0] ?? null;
+    }
   };
   let release = await findRelease();
   const existing = Boolean(release);
@@ -149,7 +156,7 @@ export async function publish({ request, repository, version: v, commit, notes, 
     // itself, not only entry to publish() or its eventual readback.
     if (!(await publicationState()).eligible) return null;
     const result = runCommand('gh', ['release', 'create', tag, '--repo', repository,
-      '--verify-tag', '--title', title, '--notes', notes, '--latest=true'], { encoding: 'utf8' });
+      '--verify-tag', '--title', title, '--notes', notes, '--draft'], { encoding: 'utf8' });
     if (result.error || result.status !== 0) throw new Error(`Release publication failed: ${result.error?.message ?? result.stderr}`);
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await delay(1000 * 2 ** (attempt - 1));
@@ -164,7 +171,7 @@ export async function publish({ request, repository, version: v, commit, notes, 
   const mismatches = [];
   if (release.tag_name !== tag) mismatches.push('tag_name');
   if (release.name !== title) mismatches.push('name');
-  if (release.draft !== false) mismatches.push('draft');
+  if (typeof release.draft !== 'boolean') mismatches.push('draft');
   if (release.prerelease !== false) mismatches.push('prerelease');
   if (!release.body?.startsWith(`Nix packaging for upstream PD2 Trader ${v}.`) || !release.body.includes(commit)) mismatches.push('body');
   if (mismatches.length) throw new Error(`Release readback mismatch (${tag}): ${mismatches.join(', ')}`);
@@ -188,6 +195,22 @@ export async function publish({ request, repository, version: v, commit, notes, 
   const publishedRef = await getRef(request, repository, 'tags', tag);
   if (publishedRef?.object.type !== 'tag' || publishedRef.object.sha !== ref.object.sha) throw new Error('Published tag target changed');
   if (!Number.isSafeInteger(release.id) || release.id < 1) throw new Error('Invalid release ID');
+  // A draft is recoverable, but no existing published release is backfilled.
+  // Asset verification completes before a draft can be promoted or Latest set.
+  await attachAssets(release);
+  const target = await getRef(request, repository, 'tags', tag);
+  if (target?.object.type !== 'tag' || target.object.sha !== ref.object.sha) throw new Error('Published tag target changed');
+  const tagObject = await request(`/repos/${repository}/git/tags/${sha(target.object.sha)}`);
+  if (tagObject.object?.type !== 'commit' || tagObject.object.sha !== commit || tagObject.tag !== tag || tagObject.message.trim() !== title) throw new Error('Tag conflict: target/annotation mismatch');
+  if (release.draft) {
+    const draft = await findRelease();
+    if (!draft || draft.id !== release.id || draft.draft !== true || draft.tag_name !== tag || draft.name !== title || draft.body !== release.body || draft.prerelease !== false) throw new Error('Draft release changed during asset transfer');
+    if (!(await publicationState()).eligible) return null;
+    await request(`/repos/${repository}/releases/${release.id}`, { method: 'PATCH', body: { draft: false, make_latest: 'true' } });
+    const published = await findRelease();
+    if (!published || published.id !== release.id || published.tag_name !== tag || published.name !== title || published.draft !== false || published.prerelease !== false || published.body !== release.body) throw new Error('Published release readback mismatch');
+    release = published;
+  }
   const isLatest = latest => latest?.id === release.id && latest.tag_name === tag &&
     latest.name === title && latest.draft === false && latest.prerelease === false && latest.body === release.body;
   const current = await publicationState();
@@ -220,6 +243,10 @@ async function successfulJobs(request, repository, run) {
   // CI also contains an isolated cache uploader. Its presence must neither
   // invalidate a real build nor substitute for a missing/failed build job.
   if (builds.length !== 1 || builds[0].conclusion !== 'success') throw new Error('Missing/mismatched successful CI job');
+  for (const name of ['Check Flatpak launcher contract', 'Convert and structurally probe Flatpak bundle', 'Upload Flatpak artifact']) {
+    const steps = (builds[0].steps ?? []).filter(step => step.name === name);
+    if (steps.length !== 1 || steps[0].conclusion !== 'success') throw new Error(`Missing/failed Flatpak CI step: ${name}`);
+  }
 }
 
 export async function sourceAt(request, repository, path, commit) {
@@ -275,7 +302,7 @@ export async function validateReleaseEvidence({ request, repository, pr, version
   return base;
 }
 
-export async function completeCI({ eventRun, repository, request, runCommand }) {
+export async function completeCI({ eventRun, repository, request, runCommand, withArtifact: openArtifact = withArtifact, attachAssets = ensureAssets }) {
   if (!Number.isSafeInteger(eventRun?.id)) throw new Error('Missing CI run');
   const workflow = await request(`/repos/${repository}/actions/workflows/ci.yml`);
   const run = await request(`/repos/${repository}/actions/runs/${eventRun.id}`);
@@ -302,8 +329,31 @@ export async function completeCI({ eventRun, repository, request, runCommand }) 
   await validateReleaseEvidence({ request, repository, pr, version: v, issue });
   const comparison = await request(`/repos/${repository}/compare/${commit}...main`);
   if (!['ahead', 'identical'].includes(comparison.status)) throw new Error('Tested commit is not on main');
+  const lock = JSON.parse(await sourceAt(request, repository, 'flake.lock', commit));
+  const converter = lock.nodes?.[lock.nodes?.[lock.root]?.inputs?.nix2flatpak]?.locked;
+  if (converter?.type !== 'github' || converter.owner !== 'neobrain' || converter.repo !== 'nix2flatpak') throw new Error('Unexpected converter source');
+  const converterRevision = sha(converter.rev);
+  const prototype = await sourceAt(request, repository, 'flatpak/prototype.nix', commit);
+  if (!prototype.includes('appId = "io.github.ohbe1jacobi.PD2Trader";') ||
+      !prototype.includes('runtime = "org.gnome.Platform/51";') ||
+      !prototype.includes('skipAbiChecks = false;')) throw new Error('Unexpected Flatpak packaging policy');
+  const expected = { schema: 1, version: v, appId: 'io.github.ohbe1jacobi.PD2Trader', commit,
+    converterRevision, runtime: 'org.gnome.Platform/x86_64/51', runId: run.id,
+    runAttempt: run.run_attempt, bundle: `pd2-trader-${v}-x86_64.flatpak` };
   const notes = `Nix packaging for upstream PD2 Trader ${v}.\n\nTracking issue: https://github.com/${repository}/issues/${issue}\nRelease PR: https://github.com/${repository}/pull/${pr.number}\nCI: ${ciURL}\n\nExisting build-and-test CI succeeded on merged main commit ${commit}, including its Nix application build, integration contracts, development shell and isolated startup steps. Cached Nix outputs may be reused; this is not a reproducibility or complete game/OAuth/audio integration claim.`;
-  const release = await publish({ request, repository, version: v, commit, notes, runCommand });
+  const release = await openArtifact({ request, repository, run, expected, runCommand }, async files => {
+    // An attempt may have been rerun while the bundle was downloaded.
+    const current = await request(`/repos/${repository}/actions/runs/${run.id}`);
+    validateRun(eventRun, current, workflow.id, repository);
+    await successfulJobs(request, repository, current);
+    return publish({ request, repository, version: v, commit, notes, runCommand,
+      attachAssets: async target => {
+        await attachAssets({ request, repository, release: target, files, runCommand });
+        const latestRun = await request(`/repos/${repository}/actions/runs/${run.id}`);
+        validateRun(eventRun, latestRun, workflow.id, repository);
+        await successfulJobs(request, repository, latestRun);
+      } });
+  });
   if (!release) return { status: 'superseded', commit };
   return { status: 'published', commit, release: release.html_url };
 }
