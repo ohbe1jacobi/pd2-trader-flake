@@ -32,8 +32,8 @@ and the remaining publication gates.
   works merely because the window opens.
 - Install Diablo II, Project Diablo 2 and Wine/Proton separately. This bundle
   does not install or configure the game.
-- Install the **GNOME 51 runtime**, even on KDE or another non-GNOME desktop. It
-  is a separate download, not a requirement to switch desktop environments.
+- Flatpak obtains the required **GNOME 51 runtime** during installation, even on
+  KDE or another non-GNOME desktop. This does not change your desktop environment.
 
 ## Obtain and install a bundle
 
@@ -61,23 +61,19 @@ authenticate the publisher. The 0.10.16 build information records a local build,
 not a GitHub Actions run, and a packaging commit different from the release tag.
 Do not treat the tag's CI result as verification of this later-added bundle.
 
-Run as your normal desktop user, not with `sudo`. These commands change your
-per-user Flatpak installation. If you do not already have the Flathub remote:
+Install the downloaded bundle as your normal desktop user, not with `sudo`:
 
 ```bash
-flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-```
-
-Install the runtime and then the downloaded bundle from that directory:
-
-```bash
-flatpak install --user flathub org.gnome.Platform/x86_64/51
 flatpak install --user ./pd2-trader-0.10.16-experimental-x86_64.flatpak
 ```
 
+Review and accept Flatpak's runtime download and repository-addition prompts as
+needed. No separate GNOME runtime installation command is required. Internet
+access is needed unless the required runtime is already installed.
+
 The application ID is `io.github.ohbe1jacobi.PD2Trader`; the Flatpak branch is
 `stable`. The bundle is currently unsigned and is not a production distribution.
-Adding Flathub supplies the runtime, not a hosted PD2 Trader update channel.
+Flathub supplies the runtime, not a hosted PD2 Trader update channel.
 
 ## Set the game directory once
 

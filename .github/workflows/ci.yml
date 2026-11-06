@@ -98,7 +98,13 @@ jobs:
         if: steps.gate.outputs.mirror != 'true'
         run: nix build .#checks.x86_64-linux.flatpak-launcher --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
 
-      - name: Convert and structurally probe Flatpak bundle
+      - name: Test Flatpak runtime-repository metadata validation
+        if: steps.gate.outputs.mirror != 'true'
+        run: nix build .#checks.x86_64-linux.flatpak-runtime-repo --no-link --no-update-lock-file --max-jobs 1 --cores 1 --print-build-logs
+
+      # The derivation embeds Flathub discovery during initial bundle export and
+      # reads it back from the emitted bytes before any artifact can be uploaded.
+      - name: Build Flatpak bundle with verified runtime discovery
         id: flatpak-build
         if: steps.gate.outputs.mirror != 'true'
         run: node .github/scripts/flatpak-build.mjs

@@ -20,6 +20,9 @@ nix build .#flatpak-repo-prototype --out-link result-flatpak-repo --max-jobs 1 -
 - App ID: `io.github.ohbe1jacobi.PD2Trader`
 - Application branch/architecture: `stable` / `x86_64`
 - Runtime: `org.gnome.Platform/x86_64/51` from Flathub (separate download)
+- Bundles embed Flathub's `.flatpakrepo` URL for automatic runtime discovery;
+  users install the app bundle and approve Flatpak's prompts, not a separate
+  GNOME runtime command.
 - Converter: tracks `main`, with its exact revision fixed by `flake.lock` and
   updates proposed through the reviewed weekly Dependabot PR. The prototype
   audit used revision `7731e8b3fca73879f8217de5a919c0a5d17303de`.
@@ -40,6 +43,21 @@ and `build-info.json`. The separate `result-flatpak-repo` is an HTTP-servable
 OSTree `archive-z2` repository with a summary and application ref. This extra
 export is needed because this converter revision discards its temporary repo.
 Neither output is signed; the separate repository is not a hosted update channel.
+
+### CI runtime discovery
+
+`flatpak/prototype.nix` adds Flathub's `--runtime-repo` URL during initial bundle
+export and checks the emitted bytes with libflatpak before CI artifact upload.
+The pinned converter has no parameter for this option; review the guarded
+override when updating it. The metadata contract covers correct, missing and
+incorrect URLs plus malformed input:
+
+```bash
+nix build .#checks.x86_64-linux.flatpak-runtime-repo --no-link --max-jobs 1 --cores 1 -L
+```
+
+These checks do not install apps/runtimes or test a full first-install transaction.
+Runtime discovery does not create a Trader update channel.
 
 ## Test repository discovery without installing anything
 

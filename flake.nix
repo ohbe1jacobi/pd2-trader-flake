@@ -62,7 +62,7 @@
         };
         default = self.apps.${system}.pd2-trader;
       };
-      overlays.default = final: prev: { pd2-trader = final.callPackage ./package.nix { }; };
+      overlays.default = final: _: { pd2-trader = final.callPackage ./package.nix { }; };
       devShells.${system}.default = devShell;
       # Export cache-compatible defaults without changing direct module-file imports.
       homeManagerModules.pd2-trader =
@@ -83,6 +83,11 @@
         pre-commit = preCommitCheck;
         # Isolated settings/launcher test; does not build or launch the Flatpak app.
         flatpak-launcher = import ./tests/flatpak-launcher.nix { inherit pkgs; };
+        # Exercise real bundle metadata, including missing/incorrect URLs.
+        flatpak-runtime-repo = import ./tests/flatpak-runtime-repo.nix {
+          inherit pkgs;
+          bundle = flatpakPrototype.bundle;
+        };
         dependency-graph =
           pkgs.runCommand "pd2-trader-dependency-graph-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
             ''

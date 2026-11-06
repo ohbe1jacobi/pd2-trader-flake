@@ -1,4 +1,5 @@
 {
+  lib,
   callPackage,
   symlinkJoin,
   makeDesktopItem,
@@ -11,6 +12,8 @@
 let
   # Packaging-repository namespace, not an assertion of upstream ownership.
   appId = "io.github.ohbe1jacobi.PD2Trader";
+  runtimeRepo = "https://dl.flathub.org/repo/flathub.flatpakrepo";
+  runtimeRepoProbe = callPackage ./runtime-repo-probe.nix { };
   launcher = callPackage ./launcher.nix {
     nativeLauncher = "${package.native}/bin/pd2-trader";
   };
@@ -42,7 +45,7 @@ let
     # Do not copy the Nix package's passthru frontend/native build interface.
     inherit (package) meta;
   };
-  bundle = mkFlatpak {
+  convertedBundle = mkFlatpak {
     inherit appId;
     package = adaptedPackage;
     appName = "PD2 Trader";
@@ -75,6 +78,25 @@ let
       own-names = [ "org.com_pd2_trader_app.SingleInstance" ];
     };
   };
+  # The locked converter has no runtime-repository parameter. Adapt its initial
+  # export command, not an already-built/released bundle. Fail evaluation if an
+  # update changes that command so this integration cannot silently stop working.
+  bundle = convertedBundle.overrideAttrs (old: {
+    installPhase =
+      let
+        command = "flatpak build-bundle";
+      in
+      assert lib.assertMsg (
+        builtins.length (lib.splitString command old.installPhase) == 2
+      ) "nix2flatpak bundle export changed; review the runtime-repository integration";
+      lib.replaceString command "${command} --runtime-repo=${runtimeRepo}" old.installPhase;
+    doInstallCheck = true;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      ${runtimeRepoProbe}/bin/probe-runtime-repo "$out/${appId}.flatpak" "${runtimeRepo}"
+      runHook postInstallCheck
+    '';
+  });
   # Upstream mkFlatpak discards its temporary bare-user-only repository. Export
   # the retained build directory into an HTTP-servable archive-z2 repository.
   repository =
