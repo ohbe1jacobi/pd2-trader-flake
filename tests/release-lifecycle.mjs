@@ -326,7 +326,7 @@ test('completion requires real successful jobs and eligible PRs before publicati
       if (path.endsWith('/workflows/ci.yml')) return { id: 7 };
       if (path.endsWith('/runs/1')) return run;
       if (path.includes('/jobs?')) return { jobs: [{ name: 'Nix build and tests (x86_64-linux)', conclusion, steps: [
-        'Check Flatpak launcher contract', 'Convert and structurally probe Flatpak bundle', 'Upload Flatpak artifact',
+        'Check Flatpak launcher contract', 'Build Flatpak bundle with verified runtime discovery', 'Upload Flatpak artifact',
       ].map(name => ({ name, conclusion: 'success' })) }], total_count: 1 };
       if (path.includes('/pulls?')) return [];
       throw new Error(`Unexpected ${path}`);

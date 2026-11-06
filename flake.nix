@@ -140,6 +140,7 @@
             ''
               mkdir -p .github/scripts .github/workflows tests
               cp ${./.github/scripts}/*.mjs .github/scripts/
+              cp ${./.github/workflows/ci.yml} .github/workflows/ci.yml
               cp ${./.github/workflows/release-lifecycle.yml} .github/workflows/release-lifecycle.yml
               cp ${./tests/upstream-release.mjs} tests/upstream-release.mjs
               cp ${./tests/prepare-update.mjs} tests/prepare-update.mjs

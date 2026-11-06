@@ -243,7 +243,7 @@ async function successfulJobs(request, repository, run) {
   // CI also contains an isolated cache uploader. Its presence must neither
   // invalidate a real build nor substitute for a missing/failed build job.
   if (builds.length !== 1 || builds[0].conclusion !== 'success') throw new Error('Missing/mismatched successful CI job');
-  for (const name of ['Check Flatpak launcher contract', 'Convert and structurally probe Flatpak bundle', 'Upload Flatpak artifact']) {
+  for (const name of ['Check Flatpak launcher contract', 'Build Flatpak bundle with verified runtime discovery', 'Upload Flatpak artifact']) {
     const steps = (builds[0].steps ?? []).filter(step => step.name === name);
     if (steps.length !== 1 || steps[0].conclusion !== 'success') throw new Error(`Missing/failed Flatpak CI step: ${name}`);
   }

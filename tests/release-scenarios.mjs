@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { completeCI } from '../.github/scripts/release-lifecycle.mjs';
 const repository = 'owner/repo';
@@ -18,7 +19,7 @@ function scenario(branch = 'main') {
     files: [{ filename: 'native-package.nix', status: 'modified' }, { filename: 'README.md', status: 'modified' }],
     parents: [{ sha: base }], trusted: true, mode: '100644', jobs: [
       { name: 'Nix build and tests (x86_64-linux)', conclusion: 'success', steps: [
-        'Check Flatpak launcher contract', 'Convert and structurally probe Flatpak bundle', 'Upload Flatpak artifact',
+        'Check Flatpak launcher contract', 'Build Flatpak bundle with verified runtime discovery', 'Upload Flatpak artifact',
       ].map(name => ({ name, conclusion: 'success' })) },
       { name: 'Publish trusted application cache', conclusion: 'success' },
     ] };
@@ -89,6 +90,15 @@ function scenario(branch = 'main') {
       return callback([]);
     }, attachAssets: async () => {} });
 }
+test('release gate accepts successful step names from the actual CI workflow', async () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const buildJob = workflow.split('\n  cache-upload:')[0];
+  const state = scenario();
+  state.jobs[0].steps = [...buildJob.matchAll(/^      - name: (.+)$/gm)]
+    .map(([, name]) => ({ name, conclusion: 'success' }));
+  assert.ok(state.jobs[0].steps.length > 0);
+  assert.equal((await completeCI(state)).status, 'published');
+});
 test('missing exact-run Flatpak artifact prevents tag or release writes', async () => {
   const state = scenario();
   state.withArtifact = async () => { throw new Error('missing exact-run artifact'); };
@@ -175,7 +185,7 @@ test('a successful job with skipped or failed Flatpak steps cannot publish', asy
     const state = scenario();
     state.jobs[0].steps = [
       { name: 'Check Flatpak launcher contract', conclusion: 'success' },
-      { name: 'Convert and structurally probe Flatpak bundle', conclusion },
+      { name: 'Build Flatpak bundle with verified runtime discovery', conclusion },
       { name: 'Upload Flatpak artifact', conclusion: 'success' },
     ];
     await assert.rejects(completeCI(state), /Flatpak.*step/);
