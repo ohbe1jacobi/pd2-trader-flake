@@ -28,7 +28,7 @@ Application preferences live under `settings`. Existing top-level `autoUpdateEna
 | --- | --- | --- |
 | `enable` | `false` | Install the configured package and manage session integration. |
 | `autostart` | `true` | Start Trader at graphical login. Disable for manual launch only. |
-| `settings.autoUpdateEnabled` | `false` | Merge the automatic-update preference before each launch. `null` leaves the saved GUI preference unmanaged; notifications and manual updates remain available. |
+| `settings.autoUpdateEnabled` | `null` | Leave the saved GUI preference unmanaged by default. Explicit `true` or `false` values are merged before each launch. |
 | `settings.telemetryOptOut` | `null` | `true` opts out of telemetry; `false` allows it. `null` leaves the saved GUI preference unmanaged. Requires upstream 0.10.16 or later. |
 | `d2dir` / `settings.diablo2Directory` | `~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II` | Installation directory, as a quoted string; top-level `d2dir` is an alias for `settings.diablo2Directory`. Set `null` to leave the saved GUI setting unmanaged. |
 | `package` | This flake's locked package for exported modules; consumer-built package for direct module-file imports | Override the Trader package. |
@@ -46,7 +46,7 @@ Example inside `programs.pd2-trader` in either module:
   d2dir = "~/Games/another-prefix/drive_c/Program Files (x86)/Diablo II";
 
   settings = {
-    autoUpdateEnabled = false;
+    autoUpdateEnabled = null; # Leave the saved GUI preference unmanaged.
     telemetryOptOut = true;
   };
 
@@ -88,9 +88,11 @@ A GUI directory change is overridden at the next configured launch. Setting `d2d
 
 ### Automatic updates
 
-Both modules default to `settings.autoUpdateEnabled = false`, using upstream's existing preference rather than patching application source. It is reapplied at each configured launch, including when `d2dir = null`. Set `settings.autoUpdateEnabled = null` to leave the GUI preference unmanaged without clearing it, or `true` to opt into upstream's automatic updates. A GUI change persists only until the next configured launch while the option is managed.
+Both modules default to `settings.autoUpdateEnabled = null`, leaving the saved GUI preference unmanaged. This does not erase or reset an existing value: a previously saved `false`, including one written by the old module default, remains `false` until changed in Trader's GUI or explicitly managed through Nix. An absent preference stays absent; the application supplies its own default.
 
-This disables automatic downloading/installing/restarting, not update checks, notifications, or manual update actions. Continue updating through Nix. Plain `nix run` and profile installations do not merge settings; disable automatic updates in Trader's GUI yourself or use a module. Changing this option requires no frontend or Rust recompilation.
+This default relies on an upstream release containing PR #245's read-only installation detection. That safeguard must be included in the packaged application before adopting this change. It is intended to prevent both automatic and manual update downloads/installation and updater-triggered restarts for Nix-store executables, independently of the saved preference, while preserving update notifications. Continue updating through Nix; the preference does not make the Nix store writable. A custom `package` using an older upstream version may lack this safeguard; explicitly set `settings.autoUpdateEnabled = false` to disable automatic updates there (manual update actions are not disabled by that preference).
+
+Explicit `settings.autoUpdateEnabled = false` or `true` remains supported and is reapplied before each configured launch, including when `d2dir = null`. A GUI change then lasts only until the next configured launch. Set `null` to stop managing the preference without clearing it. Plain `nix run` and profile installations do not merge settings. Changing this option requires no frontend or Rust recompilation.
 
 ### Telemetry
 
