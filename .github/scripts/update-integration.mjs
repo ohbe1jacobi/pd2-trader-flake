@@ -2,7 +2,7 @@ import { appendFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createRequest, readPinnedVersion } from './check-upstream.mjs';
 import { validateGeneratedUpdate } from './prepare-update.mjs';
-import { version, sha, marker, getRef, validateIssue, ensurePR, dispatchCI, validateUpdateCommit } from './release-lifecycle.mjs';
+import { version, sha, marker, getRef, validateIssue, ensurePR, dispatchCI, validateUpdateCommit, validateReleaseEvidence, pages } from './release-lifecycle.mjs';
 
 export function validatePayload(beforeNative, afterNative, beforeReadme, afterReadme, next) {
   return validateGeneratedUpdate({ beforeNative, afterNative, beforeReadme, afterReadme, version: next });
@@ -60,8 +60,25 @@ export async function finishUpdate({ request, prRequest = request, repository, v
   const head = await getRef(request, repository, 'heads', plan.branch);
   if (head?.object.sha !== commit) throw new Error('Frozen release branch readback mismatch');
   if (readPinnedVersion(await content(request, repository, 'native-package.nix', commit)) !== v) throw new Error('Frozen release branch version mismatch');
-  await validateUpdateCommit({ request, repository, base, commit, version: v });
-  const body = `${marker(v, issue)}\n<!-- pd2-main-base:${base} -->\n\nUpdates PD2 Trader to ${v} from trusted main commit ${base}.\n\nCloses #${issue}\nUpstream: https://github.com/errolgr/pd2-trade/releases/tag/app-v${v}\n\nApplication version/source/npm/Cargo hashes and documented packaged version only; flake inputs unchanged.\n\nFull existing CI is explicitly dispatched. Manual approval/merge into main required. Failed PRs stay open for diagnosis.`;
+  let recordedBase = base;
+  try {
+    await validateUpdateCommit({ request, repository, base, commit, version: v });
+  } catch (error) {
+    // An existing reviewed candidate can predate current main. Its original
+    // PR evidence is authoritative; never rewrite the branch or its marker.
+    if (!plan.head || error.message !== 'Frozen branch conflict: update parent differs from main baseline') throw error;
+    const prs = await pages(prRequest, `/repos/${repository}/pulls?state=all&head=${repository.split('/')[0]}:${plan.branch}&base=main`);
+    if (prs.length !== 1) throw new Error('Missing/ambiguous existing release PR evidence');
+    const existing = await prRequest(`/repos/${repository}/pulls/${prs[0].number}`);
+    if (existing.state !== 'open' || existing.head?.sha !== commit || existing.head?.ref !== plan.branch ||
+        existing.head?.repo?.full_name !== repository || existing.base?.ref !== 'main' ||
+        existing.base?.repo?.full_name !== repository || !(existing.body ?? '').includes(marker(v, issue))) {
+      throw new Error('Mismatched existing release PR evidence');
+    }
+    recordedBase = await validateReleaseEvidence({ request, repository,
+      pr: { ...existing, base: { ...existing.base, sha: base } }, version: v, issue });
+  }
+  const body = `${marker(v, issue)}\n<!-- pd2-main-base:${recordedBase} -->\n\nUpdates PD2 Trader to ${v} from trusted main commit ${recordedBase}.\n\nCloses #${issue}\nUpstream: https://github.com/errolgr/pd2-trade/releases/tag/app-v${v}\n\nApplication version/source/npm/Cargo hashes and documented packaged version only; flake inputs unchanged.\n\nFull existing CI is explicitly dispatched. Manual approval/merge into main required. Failed PRs stay open for diagnosis.`;
   const pr = await ensurePR(prRequest, repository, { head: plan.branch, base: 'main', title: `build: update PD2 Trader to ${v}`, body });
   await dispatchCI(request, repository, plan.branch, commit);
   return { status: 'integration-prepared', commit, pr: pr.number };

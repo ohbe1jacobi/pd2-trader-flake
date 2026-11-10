@@ -52,6 +52,45 @@ test('writer rejects stale main before accepting any generated output', async ()
   await assert.rejects(finishUpdate({ request, repository, version: '0.10.10', issue: '42', base: 'c'.repeat(40) }), /Stale/);
 });
 
+test('retry after main advances preserves the original PR baseline and dispatches the verified frozen head', async () => {
+  const { request: original } = fixture(true);
+  const baseline = 'c'.repeat(40), head = 'b'.repeat(40);
+  const body = `<!-- pd2-update:0.10.10:42 -->\n<!-- pd2-main-base:${baseline} -->\nCloses #42\nManual review notes`;
+  const pr = { number: 4, state: 'open', body,
+    head: { sha: head, ref: 'release/0.10.10', repo: { full_name: repository } },
+    base: { sha: commit, ref: 'main', repo: { full_name: repository } } };
+  const writes = [];
+  const request = async (path, options = {}) => {
+    if (options.method) writes.push([path, options]);
+    if (path.endsWith(`/git/commits/${head}`)) return { parents: [{ sha: baseline }], tree: { sha: 'f'.repeat(40) } };
+    if (path.includes('/contents/') && path.endsWith(`ref=${baseline}`)) return {
+      type: 'file', encoding: 'base64', content: Buffer.from(path.includes('native-package.nix') ? before : 'Builds the pinned upstream **0.10.9** release.').toString('base64'),
+    };
+    if (path.endsWith(`/compare/${baseline}...${commit}`)) return { status: 'ahead' };
+    if (path.endsWith(`/compare/${commit}...${commit}`)) return { status: 'identical' };
+    if (path.endsWith(`/compare/${baseline}...${head}`)) return { merge_base_commit: { sha: baseline }, files: [
+      { filename: 'native-package.nix', status: 'modified' }, { filename: 'README.md', status: 'modified' },
+    ] };
+    if (path.includes('/pulls?')) return [pr];
+    if (path.endsWith('/pulls/4')) return pr;
+    if (path.endsWith('/dispatches')) return null;
+    return original(path, options);
+  };
+  const input = { request, repository, version: '0.10.10', issue: '42', base: commit };
+  assert.equal((await finishUpdate(input)).pr, 4);
+  assert.equal(pr.body, body);
+  assert.deepEqual(writes.map(([, options]) => options.body), [{ ref: 'release/0.10.10', inputs: { expected_sha: head } }]);
+  for (const change of [{ state: 'closed' }, { body: body.replace(baseline, commit) },
+    { body: body.replace('0.10.10:42', '0.10.10:43') },
+    { head: { ...pr.head, sha: 'd'.repeat(40) } },
+    { head: { ...pr.head, repo: { full_name: 'foreign/repo' } } }]) {
+    writes.length = 0;
+    const invalid = async (path, options) => path.endsWith('/pulls/4') ? { ...pr, ...change } : request(path, options);
+    await assert.rejects(finishUpdate({ ...input, request: invalid }), /evidence|parent/i);
+    assert.equal(writes.length, 0);
+  }
+});
+
 test('privileged writer accepts only literal version/hash substitutions and the packaged README reference', () => {
   const hash = `sha256-${Buffer.alloc(32, 1).toString('base64')}`;
   const nextHash = `sha256-${Buffer.alloc(32, 2).toString('base64')}`;
