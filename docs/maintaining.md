@@ -33,28 +33,28 @@ CI still builds the source package with frontend Vitest and native Cargo tests e
 
 ### Flatpak release assets
 
-The experimental bundle attached to **0.10.16** was built locally and uploaded
+The bundle attached to **0.10.16** was built locally and uploaded
 manually, after the tagged release. Its `build-info.json` identifies the local
 packaging commit separately from the release tag and does not claim a CI run.
 Do not move the tag or rewrite that provenance to resemble an automated build.
 
-Automated Flatpak packaging and attachment are **expected starting with
-0.10.17**, once the reviewed workflows are on `main` and the eligible release's
-exact merged-main CI succeeds. Build CI converts and structurally probes the
-bundle, then uploads the explicit three-file candidate artifact. The existing
+Automated Flatpak packaging and attachment began with **0.11.0**. Publication
+requires the eligible release's exact merged-main CI to succeed. Build CI
+converts and structurally probes the bundle, then uploads the explicit three-file
+candidate artifact. The existing
 release controller downloads the artifact from the verified run **and attempt**,
 checks its identity, metadata and checksums, and attaches those exact files to a
 draft release before publication. It never rebuilds during publication or selects
 an unrelated latest-green artifact. Ordinary feature/maintenance merges do not
 authorize another upstream application release.
 
-The controller gives assets these display labels without renaming their files:
+The controller publishes these files; display labels do not rename downloads:
 
-| Asset | Display label |
+| Asset | Purpose |
 | --- | --- |
-| `pd2-trader-<version>-x86_64.flatpak` | Flatpak — Linux x86_64 (experimental) |
-| `SHA256SUMS` | Flatpak — SHA-256 checksums |
-| `build-info.json` | Flatpak — Build information |
+| `pd2-trader-<version>-x86_64.flatpak` | Linux x86_64 application bundle |
+| `SHA256SUMS` | SHA-256 checksums |
+| `build-info.json` | Build information |
 
 On retries, matching assets are reused; a missing or outdated label may be
 repaired with a label-only metadata update after all existing bytes are checked.
@@ -68,8 +68,9 @@ For installation and manual bundle updates, use the [Flatpak user guide](flatpak
 
 ### Flatpak Pages publication
 
-The signed Pages repository workflow is opt-in and has not yet had a verified
-public deployment. Release-asset uploads do not enable it automatically.
+The signed Pages repository serves application installation and updates through
+Flatpak. Publication is enabled through repository configuration; release-asset
+uploads alone do not configure Pages or signing.
 Repository settings, protected environments, signing keys, bootstrap approval,
 artifact retention and deployment recovery belong in the
 [maintainer publication runbook](../flatpak/publishing.md).
@@ -333,4 +334,8 @@ GITHUB_REPOSITORY=ohbe1jacobi/pd2-trader-flake node .github/scripts/check-upstre
 
 `check-upstream --dry-run` uses `gh` to read releases and existing issues but does not create an issue or dispatch preparation. Authenticate `gh` for read-only local use; in Actions the job supplies `GH_TOKEN`. For manual packaging, change the literal version in `native-package.nix`, refresh and verify all affected fixed-output hashes using the pinned updater, update the README version, and follow the same PR/build/release gates; do not bypass them with an ad hoc tag.
 
-The original develop-based lifecycle was exercised for 0.10.10, including release publication and manual backmerge. **The revised direct-main lifecycle, Cachix publication/substitution, and CI mirror behavior require a new authorized remote rehearsal.** Offline fixtures are not real GitHub execution. Do not infer cache availability or ruleset compatibility from local tests alone.
+The direct-main release lifecycle published 0.11.0, including automated Flatpak
+assets and signed Pages repository publication. Offline fixtures remain separate
+from real GitHub execution: check the exact hosted run and deployment when
+diagnosing failures, and do not infer cache availability or ruleset compatibility
+from local tests alone.
