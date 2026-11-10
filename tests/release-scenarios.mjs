@@ -99,6 +99,82 @@ test('release gate accepts successful step names from the actual CI workflow', a
   assert.ok(state.jobs[0].steps.length > 0);
   assert.equal((await completeCI(state)).status, 'published');
 });
+
+function synchronizedScenario() {
+  const state = scenario();
+  const request = state.request;
+  const synced = '1'.repeat(40), main = '2'.repeat(40);
+  state.pr.head.sha = synced;
+  state.pr.base.sha = main;
+  state.sync = { synced, main, trusted: true, payload: state.after, extra: false };
+  state.request = async (path, options) => {
+    if (path.endsWith(`/git/commits/${synced}`)) return {
+      parents: [{ sha: head }, { sha: main }], tree: { sha: '3'.repeat(40) },
+    };
+    if (path.endsWith(`/git/commits/${main}`)) return { tree: { sha: '4'.repeat(40) } };
+    if (path.endsWith(`/compare/${main}...${main}`)) return { status: state.sync.trusted ? 'identical' : 'diverged' };
+    if (path.endsWith(`/compare/${base}...${main}`)) return { status: 'ahead' };
+    if (path.endsWith(`/compare/${main}...${synced}`)) return { status: 'ahead', merge_base_commit: { sha: main }, files: state.files };
+    if (path.endsWith(`/git/trees/${'3'.repeat(40)}`) || path.endsWith(`/git/trees/${'4'.repeat(40)}`)) return {
+      truncated: false, tree: [
+        { path: 'native-package.nix', mode: '100644', type: 'blob', sha: head },
+        { path: 'README.md', mode: '100644', type: 'blob', sha: head },
+        { path: 'flake.lock', mode: '100644', type: 'blob', sha: state.sync.extra && path.endsWith('3'.repeat(40)) ? head : main },
+      ],
+    };
+    if (path.includes('/contents/') && (path.endsWith(`ref=${main}`) || path.endsWith(`ref=${synced}`))) {
+      const original = path.endsWith(`ref=${main}`);
+      const text = path.includes('native-package.nix') ? `${original ? before : state.sync.payload}# trusted main packaging change\n` :
+        `Builds the pinned upstream **${original ? '0.10.9' : '0.10.10'}** release.\nTrusted main documentation.`;
+      return { type: 'file', encoding: 'base64', content: Buffer.from(text).toString('base64') };
+    }
+    return request(path, options);
+  };
+  return state;
+}
+
+test('trusted main synchronization preserves the original payload and publishes only the exact tested merge', async () => {
+  const state = synchronizedScenario();
+  assert.equal((await completeCI(state)).commit, commit);
+  assert.equal(state.releases.length, 1);
+  assert.match(state.releases[0].body, new RegExp(commit));
+});
+
+test('main synchronization rejects untrusted parents, changed hashes and unrelated merge changes before writes', async () => {
+  for (const mutate of [s => { s.sync.trusted = false; }, s => { s.sync.extra = true; },
+    s => { s.sync.payload = s.after.replace(hash, `sha256-${Buffer.alloc(32, 2).toString('base64')}`); },
+    s => { s.sync.payload = s.after.replace('true', 'false'); }]) {
+    const state = synchronizedScenario(); mutate(state);
+    await assert.rejects(completeCI(state), /main|tree|payload|Native/i);
+    assert.equal(state.writes.length, 0);
+  }
+});
+test('synchronization rejects extra ordinary commits, octopus merges and cyclic histories', async () => {
+  for (const parents of [[{ sha: head }], [{ sha: head }, { sha: base }, { sha: commit }],
+    [{ sha: '1'.repeat(40) }, { sha: '2'.repeat(40) }]]) {
+    const state = synchronizedScenario();
+    const request = state.request;
+    state.request = async (path, options) => path.endsWith(`/git/commits/${state.sync.synced}`) ?
+      { parents, tree: { sha: '3'.repeat(40) } } : request(path, options);
+    await assert.rejects(completeCI(state), /parent|history/i);
+    assert.equal(state.writes.length, 0);
+  }
+});
+
+test('multiple trusted main synchronization merges preserve the same generated payload', async () => {
+  const state = synchronizedScenario();
+  const request = state.request;
+  const next = '5'.repeat(40);
+  state.pr.head.sha = next;
+  state.request = async (path, options) => {
+    if (path.endsWith(`/git/commits/${next}`)) return {
+      parents: [{ sha: state.sync.synced }, { sha: state.sync.main }], tree: { sha: '3'.repeat(40) },
+    };
+    return request(path.replaceAll(next, state.sync.synced), options);
+  };
+  assert.equal((await completeCI(state)).commit, commit);
+});
+
 test('missing exact-run Flatpak artifact prevents tag or release writes', async () => {
   const state = scenario();
   state.withArtifact = async () => { throw new Error('missing exact-run artifact'); };

@@ -262,6 +262,10 @@ export async function validateUpdateCommit({ request, repository, base, commit, 
   sha(base); sha(commit); version(v);
   const object = await request(`/repos/${repository}/git/commits/${commit}`);
   if (object.parents?.length !== 1 || object.parents[0].sha !== base) throw new Error('Frozen branch conflict: update parent differs from main baseline');
+  return validateUpdateTree({ request, repository, base, commit, version: v, object });
+}
+
+async function validateUpdateTree({ request, repository, base, commit, version: v, object }) {
   const parent = await request(`/repos/${repository}/git/commits/${base}`);
   const trees = await Promise.all([parent, object].map(item => request(`/repos/${repository}/git/trees/${sha(item.tree?.sha)}`)));
   const normalize = tree => {
@@ -286,7 +290,35 @@ export async function validateUpdateCommit({ request, repository, base, commit, 
     sourceAt(request, repository, 'native-package.nix', base), sourceAt(request, repository, 'native-package.nix', commit),
     sourceAt(request, repository, 'README.md', base), sourceAt(request, repository, 'README.md', commit),
   ]);
-  validateGeneratedUpdate({ beforeNative, afterNative, beforeReadme, afterReadme, version: v });
+  return validateGeneratedUpdate({ beforeNative, afterNative, beforeReadme, afterReadme, version: v });
+}
+
+// Only publication/reviewed PR retries accept synchronization merges. Creation
+// still requires one generated commit; never infer trust from a merge message.
+async function validateReleaseCandidate({ request, repository, base, commit, main, version: v }) {
+  const merges = [];
+  const seen = new Set();
+  let current = sha(commit);
+  for (;;) {
+    if (seen.has(current) || merges.length > 32) throw new Error('Invalid or excessive main synchronization history');
+    seen.add(current);
+    const object = await request(`/repos/${repository}/git/commits/${current}`);
+    if (object.parents?.length !== 2) break;
+    const imported = sha(object.parents[1].sha);
+    const ancestry = await request(`/repos/${repository}/compare/${imported}...${sha(main)}`);
+    if (!['ahead', 'identical'].includes(ancestry.status)) throw new Error('Synchronization parent was not on trusted main');
+    merges.push({ commit: current, base: imported, object });
+    current = sha(object.parents[0].sha);
+  }
+  const payload = await validateUpdateCommit({ request, repository, base, commit: current, version: v });
+  let previousBase = base;
+  for (const merge of merges.reverse()) {
+    const ancestry = await request(`/repos/${repository}/compare/${previousBase}...${merge.base}`);
+    if (!['ahead', 'identical'].includes(ancestry.status)) throw new Error('Synchronization main baseline diverged');
+    const synchronized = await validateUpdateTree({ request, repository, version: v, ...merge });
+    if (JSON.stringify(synchronized) !== JSON.stringify(payload)) throw new Error('Synchronization changed the frozen update payload');
+    previousBase = merge.base;
+  }
 }
 
 export async function validateReleaseEvidence({ request, repository, pr, version: v, issue }) {
@@ -297,7 +329,7 @@ export async function validateReleaseEvidence({ request, repository, pr, version
   const base = evidence[0][1];
   const ancestry = await request(`/repos/${repository}/compare/${base}...${sha(pr.base.sha)}`);
   if (!['ahead', 'identical'].includes(ancestry.status)) throw new Error('Update baseline was not on main');
-  await validateUpdateCommit({ request, repository, base, commit: sha(pr.head.sha), version: v });
+  await validateReleaseCandidate({ request, repository, base, commit: sha(pr.head.sha), main: sha(pr.base.sha), version: v });
   if (!(pr.body ?? '').includes(`Closes #${issue}`)) throw new Error('Missing default-branch issue closing reference');
   return base;
 }
