@@ -74,6 +74,13 @@
       files = "^(\\.github/workflows/codeql\\.yml|tests/codeql\\.mjs|flake\\.nix|git-hooks\\.nix)$";
       pass_filenames = false;
     };
+    flatpak-pages = {
+      enable = true;
+      name = "Offline signed Flatpak Pages contracts";
+      entry = "${pkgs.nodejs}/bin/node --test tests/flatpak-pages-source.mjs tests/flatpak-pages-repo.mjs tests/flatpak-pages-workflow.mjs";
+      files = "^(\\.github/(scripts/flatpak-|workflows/flatpak-pages\\.yml)|tests/flatpak-pages|flake\\.nix$|git-hooks\\.nix$)";
+      pass_filenames = false;
+    };
     flake-check = {
       enable = true;
       name = "Nix flake checks (including application build and tests)";

@@ -167,27 +167,21 @@ the upstream updater work. The upstream release-page toast may still need cleare
 Flatpak-specific wording; preventing installation and good update guidance are
 separate requirements.
 
-## GitHub Pages is a later publication step
+## Signed GitHub Pages publication
 
-Hosting a Flatpak repository on GitHub Pages is on the roadmap, not a currently
-available update service. Downloadable release bundles are a separate step.
+The opt-in `.github/workflows/flatpak-pages.yml` pipeline assembles a signed
+repository from independently verified release assets on an isolated publication
+runner. It retains at most two versions through archive refs, enforces a measured
+site-size ceiling, and deploys one complete Pages artifact. Signing does not change
+the downloadable bundle or make its original build CI-produced.
 
-Do not upload this unsigned prototype to Pages. Before enabling publication:
-
-1. Prove runtime and integration behavior with the selected runtime.
-2. Create a signing/key-management plan outside Nix derivations; private keys
-   must never enter the Nix store, source tree, or untrusted build runner.
-3. Publish a signed repository and `.flatpakref`/`.flatpakrepo` descriptors with
-   its public key and runtime-repository information.
-4. Preserve repository history for updates; do not replace an existing channel
-   blindly with independent fresh one-commit repositories. Test v1-to-v2 update
-   and rollback behavior with an isolated client.
-5. Measure repository growth against current GitHub Pages limits, and explicitly
-   handle retention, update summaries, and interrupted/atomic publication.
-
-There is no Pages deployment workflow, hosted remote, or signing key in this
-prototype. A conventional source-build manifest
-would still be needed if pursuing Flathub's build pipeline.
+See the [maintainer publication runbook](publishing.md) for key isolation,
+environment protection, the explicit checksum-pinned local 0.10.16 bootstrap,
+remote installation, retention, rollback, and deployment verification. Publication
+is disabled until configured; do not advertise the remote before a verified run.
+Private keys must never enter Nix derivations, the source tree, or app-build CI.
+Actual Trader desktop acceptance remains a separate gate. A conventional
+source-build manifest would still be needed for Flathub's build pipeline.
 
 ## Verdict: PARTIAL
 
@@ -212,8 +206,8 @@ That test predates the environment-variable launcher; its converted runtime path
 still needs a user test after reinstalling this bundle.
 
 Not independently validated across desktops: graphical startup, browser/OAuth,
-audio, tray and game integration. Signed distribution, update/rollback and
-GitHub Pages publication remain unvalidated.
+audio, tray and game integration. Synthetic signing/update tests do not validate
+Trader upgrades or an actual GitHub Pages deployment.
 The converter still reports some references to dropped store paths and cannot
 find libstdc++ for that portion of its ABI check. Leaving its checks enabled is
 not equivalent to proving every library ABI or runtime integration correct.
