@@ -7,10 +7,9 @@ You do not need Nix to install it. Automated packaging and release-asset uploads
 are **expected starting with 0.10.17**, subject to successful CI and release
 eligibility checks; 0.10.16 was not produced by that automated path.
 
-A **GitHub Pages–hosted Flatpak repository is on the roadmap**, but there is no
-hosted Trader update channel yet. Until then, install and update with downloaded
-bundles. See the [maintainer guide](../flatpak/README.md) for building, validation
-and the remaining publication gates.
+The [repository installation guide](flatpak-pages.md) covers signed-repository
+installation and updates. A public deployment has not yet been verified; until
+the project confirms the channel is live, use the downloaded bundles below.
 
 > **Updater warning for 0.10.16:** Disable automatic updates in Trader's settings
 > on first launch. **Do not use any in-app install/update action**, including

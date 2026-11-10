@@ -7,10 +7,12 @@
 !/CONTRIBUTING.md
 !/docs/installation.md
 !/docs/flatpak.md
+!/docs/flatpak-pages.md
 !/docs/configuration.md
 !/docs/troubleshooting.md
 !/docs/maintaining.md
 !/flatpak/README.md
+!/flatpak/publishing.md
 
 # Optional development checkout, historical packaging, and local diagnostics.
 /upstream/

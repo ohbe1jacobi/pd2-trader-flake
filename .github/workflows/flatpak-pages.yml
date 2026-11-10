@@ -1,0 +1,144 @@
+name: Publish signed Flatpak repository
+
+on:
+  # The release controller uses GITHUB_TOKEN, so release:published would not
+  # reliably trigger another workflow. Follow the completed controller instead.
+  workflow_run:
+    workflows: [Publish tested packaging release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize with release publication so a changing release cannot be promoted
+  # between source verification and deployment. Never cancel active signing.
+  group: pd2-release-state
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    if: >-
+      vars.FLATPAK_PAGES_ENABLED == 'true' &&
+      github.repository == 'ohbe1jacobi/pd2-trader-flake' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: flatpak-publish
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+      pages: read
+    outputs:
+      channel_sha256: ${{ steps.channel.outputs.sha256 }}
+      summary_sha256: ${{ steps.channel.outputs.summary }}
+      signature_sha256: ${{ steps.channel.outputs.signature }}
+    steps:
+      - name: Check out trusted main controller only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Read existing Pages configuration (never enable it implicitly)
+        id: pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        with:
+          enablement: false
+      - name: Install repository tools, never application build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends flatpak ostree gnupg
+      - name: Download and independently verify eligible published release bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLATPAK_PAGES_ALLOW_MANUAL_BOOTSTRAP: ${{ vars.FLATPAK_PAGES_ALLOW_MANUAL_BOOTSTRAP }}
+        run: node .github/scripts/flatpak-pages-source.mjs "$RUNNER_TEMP/flatpak-source"
+      - name: Import dedicated automation key and assemble signed static repository
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+          FLATPAK_PAGES_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/flatpak-signing"
+          install -d -m 700 "$GNUPGHOME"
+          test -n "$FLATPAK_GPG_PRIVATE_KEY"
+          printf '%s' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+          unset FLATPAK_GPG_PRIVATE_KEY
+          node .github/scripts/flatpak-pages-repo.mjs "$RUNNER_TEMP/flatpak-source" "$RUNNER_TEMP/flatpak-site"
+      - name: Destroy signing material before uploading public files
+        if: always()
+        run: |
+          export GNUPGHOME="$RUNNER_TEMP/flatpak-signing"
+          if test -d "$GNUPGHOME"; then
+            gpgconf --kill all || true
+            rm -rf -- "$GNUPGHOME"
+          fi
+      - name: Record exact public channel digest
+        id: channel
+        run: |
+          digest=$(sha256sum "$RUNNER_TEMP/flatpak-site/channel.json")
+          printf 'sha256=%s\n' "${digest%% *}" >> "$GITHUB_OUTPUT"
+          digest=$(sha256sum "$RUNNER_TEMP/flatpak-site/repo/summary")
+          printf 'summary=%s\n' "${digest%% *}" >> "$GITHUB_OUTPUT"
+          digest=$(sha256sum "$RUNNER_TEMP/flatpak-site/repo/summary.sig")
+          printf 'signature=%s\n' "${digest%% *}" >> "$GITHUB_OUTPUT"
+      - name: Upload complete immutable Pages deployment
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: ${{ runner.temp }}/flatpak-site
+          retention-days: 1
+
+  deploy:
+    needs: assemble
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy complete repository, never individual live objects
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+      - name: Verify deployed channel matches the signed deployment
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_SHA256: ${{ needs.assemble.outputs.channel_sha256 }}
+          EXPECTED_SUMMARY: ${{ needs.assemble.outputs.summary_sha256 }}
+          EXPECTED_SIGNATURE: ${{ needs.assemble.outputs.signature_sha256 }}
+        run: |
+          node --input-type=module <<'JS'
+          import { createHash } from 'node:crypto';
+          import { setTimeout } from 'node:timers/promises';
+          const base = new URL(process.env.PAGE_URL.replace(/\/?$/, '/'));
+          const expected = [['channel.json', process.env.EXPECTED_SHA256], ['repo/summary', process.env.EXPECTED_SUMMARY], ['repo/summary.sig', process.env.EXPECTED_SIGNATURE]];
+          if (base.protocol !== 'https:' || expected.some(([, digest]) => !/^[a-f0-9]{64}$/.test(digest ?? ''))) throw new Error('Invalid deployment identity');
+          for (let attempt = 0; attempt < 6; attempt++) {
+            if (attempt) await setTimeout(10000);
+            const verified = await Promise.all(expected.map(async ([path, digest]) => {
+              try {
+                const response = await fetch(new URL(path, base), { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+                return response.ok && createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex') === digest;
+              } catch { return false; }
+            }));
+            if (verified.every(Boolean)) {
+              console.log('Deployed channel, summary and signature digests verified');
+              process.exit(0);
+            }
+          }
+          throw new Error('Deployed channel did not match this publication');
+          JS

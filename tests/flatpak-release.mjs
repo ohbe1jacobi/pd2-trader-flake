@@ -47,6 +47,17 @@ test('validate exact metadata, checksum and file set', async () => fixture(async
   await writeFile(join(dir, expected.bundle), 'modified');
   await assert.rejects(validateFiles(dir, expected), /checksum/);
 }));
+test('nested local-build provenance compares by value without accepting changed source hashes', async () => fixture(async (dir, files) => {
+  const local = { ...expected, sourceFileSha256: { 'flake.nix': 'a'.repeat(64) }, limitations: ['local build; no CI'] };
+  files['build-info.json'] = Buffer.from(JSON.stringify(local));
+  files.SHA256SUMS = Buffer.from(Object.keys(files).filter(name => name !== 'SHA256SUMS').sort()
+    .map(name => `${digest(files[name])}  ${name}\n`).join(''));
+  await writeFile(join(dir, 'build-info.json'), files['build-info.json']);
+  await writeFile(join(dir, 'SHA256SUMS'), files.SHA256SUMS);
+  assert.equal((await validateFiles(dir, structuredClone(local))).length, 3);
+  await assert.rejects(validateFiles(dir, { ...local, sourceFileSha256: { 'flake.nix': 'b'.repeat(64) } }), /metadata/);
+  await assert.rejects(validateFiles(dir, { ...local, limitations: ['CI build'] }), /metadata/);
+}));
 test('download validates the artifact and rejects arbitrary archive paths', async () => fixture(async (_dir, files) => {
   const archive = Buffer.from('mock zip bytes');
   const selected = { ...artifact, digest: `sha256:${digest(archive)}` };

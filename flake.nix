@@ -98,6 +98,38 @@
           node --test tests/codeql.mjs
           touch "$out"
         '';
+        # Offline publication security contracts; no signing keys or app build.
+        flatpak-pages =
+          pkgs.runCommand "pd2-trader-flatpak-pages-contract" { nativeBuildInputs = [ pkgs.nodejs ]; }
+            ''
+              mkdir -p .github/scripts .github/workflows tests
+              cp ${./.github/scripts}/*.mjs .github/scripts/
+              cp ${./.github/workflows/flatpak-pages.yml} .github/workflows/flatpak-pages.yml
+              cp ${./tests/flatpak-pages-source.mjs} tests/flatpak-pages-source.mjs
+              cp ${./tests/flatpak-pages-repo.mjs} tests/flatpak-pages-repo.mjs
+              cp ${./tests/flatpak-pages-workflow.mjs} tests/flatpak-pages-workflow.mjs
+              node --test tests/flatpak-pages-source.mjs tests/flatpak-pages-repo.mjs tests/flatpak-pages-workflow.mjs
+              touch "$out"
+            '';
+        # Real signing and isolated synthetic Flatpak update/rollback over loopback.
+        # Never builds/installs Trader or downloads/installs a runtime.
+        flatpak-pages-integration =
+          pkgs.runCommand "pd2-trader-flatpak-pages-integration"
+            {
+              nativeBuildInputs = [
+                pkgs.nodejs
+                pkgs.flatpak
+                pkgs.ostree
+                pkgs.gnupg
+              ];
+            }
+            ''
+              mkdir -p .github/scripts tests
+              cp ${./.github/scripts/flatpak-pages-repo.mjs} .github/scripts/flatpak-pages-repo.mjs
+              cp ${./tests/flatpak-pages-repo.mjs} tests/flatpak-pages-repo.mjs
+              FLATPAK_PAGES_INTEGRATION=1 node --test tests/flatpak-pages-repo.mjs
+              touch "$out"
+            '';
         # Isolated settings/launcher test; does not build or launch the Flatpak app.
         flatpak-launcher = import ./tests/flatpak-launcher.nix { inherit pkgs; };
         # Exercise real bundle metadata, including missing/incorrect URLs.
