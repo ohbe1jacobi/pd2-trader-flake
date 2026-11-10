@@ -1,12 +1,12 @@
 # Install from the Flatpak repository
 
-The signed repository is **experimental**. A public deployment has not yet been
-verified; until the project confirms the channel is live, use the
+Install PD2 Trader from the signed GitHub Pages repository for application
+updates through Flatpak. Alternatively, use the
 [downloadable bundle instructions](flatpak.md#obtain-and-install-a-bundle).
 
 ## Install
 
-After the channel is available, run as your normal desktop user, not with `sudo`:
+Run as your normal desktop user, not with `sudo`:
 
 ```bash
 flatpak install --user \
@@ -24,9 +24,8 @@ installing it through Flatpak does not add native-Wayland game detection.
 See the [requirements and limits](flatpak.md#requirements-and-limits), then
 [set the game directory](flatpak.md#set-the-game-directory-once).
 
-**For 0.10.16:** disable automatic updates in Trader and do not use any in-app
-install/update action. Use Flatpak to update this installation instead. See the
-[updater warning](flatpak.md) for the remaining limitation.
+Use Flatpak, not Trader's in-app updater, to update this installation. Users
+still running 0.10.16 should also follow the [legacy updater warning](flatpak.md#legacy-01016-updater-warning).
 
 ## Update
 

@@ -74,7 +74,7 @@ export async function loadArtifact({ request, repository, run, expected, directo
   return validateFiles(output, expected);
 }
 function assetLabel(name) {
-  if (name.endsWith('.flatpak')) return 'Flatpak — Linux x86_64 (experimental)';
+  if (name.endsWith('.flatpak')) return 'Flatpak — Linux x86_64';
   if (name === 'SHA256SUMS') return 'Flatpak — SHA-256 checksums';
   if (name === 'build-info.json') return 'Flatpak — Build information';
   throw new Error(`Unexpected release asset: ${name}`);
