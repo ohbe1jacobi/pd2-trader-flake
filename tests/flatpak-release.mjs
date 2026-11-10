@@ -13,7 +13,7 @@ const expected = { schema: 1, version: '0.10.16', appId: 'io.github.ohbe1jacobi.
 const artifact = { id: 9, name: 'flatpak-12-2', expired: false, digest: `sha256:${'b'.repeat(64)}`,
   workflow_run: { id: 12, head_sha: commit, head_branch: 'main' } };
 const labels = {
-  [expected.bundle]: 'Flatpak — Linux x86_64 (experimental)',
+  [expected.bundle]: 'Flatpak — Linux x86_64',
   SHA256SUMS: 'Flatpak — SHA-256 checksums',
   'build-info.json': 'Flatpak — Build information',
 };
@@ -112,7 +112,8 @@ test('never backfill a published release or hide an upload failure', async () =>
 test('repair only labels on byte-matching existing assets and make retries read-only', async () => fixture(async dir => {
   const files = await validateFiles(dir, expected);
   for (const draft of [true, false]) {
-    const stored = files.map((file, index) => ({ id: index + 1, name: file.name, label: index ? 'old label' : null,
+    const stored = files.map((file, index) => ({ id: index + 1, name: file.name,
+      label: file.name === expected.bundle ? 'Flatpak — Linux x86_64 (experimental)' : index ? 'old label' : null,
       size: file.size, state: 'uploaded', digest: `sha256:${file.sha256}` }));
     const writes = [];
     const request = async (path, options = {}) => {
