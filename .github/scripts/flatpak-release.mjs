@@ -3,6 +3,7 @@ import { createReadStream, openSync, closeSync } from 'node:fs';
 import { readFile, readdir, lstat, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 
 export async function fileHash(path) {
   const hash = createHash('sha256');
@@ -33,8 +34,7 @@ export async function validateFiles(directory, expected) {
     files.push({ name, path, size: stat.size, sha256: await fileHash(path) });
   }
   const info = JSON.parse(await readFile(join(directory, 'build-info.json'), 'utf8'));
-  if (JSON.stringify(Object.keys(info).sort()) !== JSON.stringify(Object.keys(expected).sort()) ||
-      Object.entries(expected).some(([key, value]) => info[key] !== value)) throw new Error('Flatpak metadata mismatch');
+  if (!isDeepStrictEqual(info, expected)) throw new Error('Flatpak metadata mismatch');
   const sums = files.filter(file => file.name !== 'SHA256SUMS').map(file => `${file.sha256}  ${file.name}\n`).join('');
   if (await readFile(join(directory, 'SHA256SUMS'), 'utf8') !== sums) throw new Error('Flatpak checksum mismatch');
   return files;

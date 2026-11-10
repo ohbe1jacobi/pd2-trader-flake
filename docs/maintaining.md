@@ -7,6 +7,7 @@
 - [Update the pinned release](#update-the-pinned-release)
 - [Workflows and review gates](#workflows-and-review-gates)
 - [Flatpak release assets](#flatpak-release-assets)
+- [Flatpak Pages publication](#flatpak-pages-publication)
 - [Repository setup and trust boundary](#repository-setup-and-trust-boundary)
 - [GitHub App for automatic PR checks](#github-app-for-automatic-pr-checks)
 - [Cachix CI setup and isolation](#cachix-ci-setup-and-isolation)
@@ -63,11 +64,17 @@ already published release. Both listing and individual-asset readback must match
 the expected bytes and labels before this step succeeds. GitHub's automatic
 source archives remain separate from these installable/supporting assets.
 
-A **GitHub Pages–hosted Flatpak repository is on the roadmap**. It is not enabled
-by release-asset uploads and has no deployed update remote yet. Signing/key
-management, retained repository history, update/rollback tests and atomic
-publication remain separate gates in the [Flatpak maintainer guide](../flatpak/README.md#github-pages-is-a-later-publication-step).
 For installation and manual bundle updates, use the [Flatpak user guide](flatpak.md).
+
+### Flatpak Pages publication
+
+The signed Pages repository workflow is opt-in and has not yet had a verified
+public deployment. Release-asset uploads do not enable it automatically.
+Repository settings, protected environments, signing keys, bootstrap approval,
+artifact retention and deployment recovery belong in the
+[maintainer publication runbook](../flatpak/publishing.md).
+Keep these publisher procedures separate from the
+[repository installation guide](flatpak-pages.md), which is for end users.
 
 ### Repository setup and trust boundary
 
