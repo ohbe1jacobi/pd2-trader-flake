@@ -5,6 +5,8 @@
 !/CHANGELOG.md
 !/AGENTS.md
 !/CONTRIBUTING.md
+!/SECURITY.md
+!/.github/CODE_OF_CONDUCT.md
 !/docs/installation.md
 !/docs/flatpak.md
 !/docs/flatpak-pages.md

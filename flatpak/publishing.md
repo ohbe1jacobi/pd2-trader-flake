@@ -5,9 +5,9 @@ belong in the [repository user guide](../docs/flatpak-pages.md), not this runboo
 These procedures configure the publisher; installing Trader requires none of
 these GitHub settings or private keys.
 
-Publication is experimental and opt-in. A successful public deployment has not
-yet been verified. Do not advertise a live remote until setup and deployment
-readback succeed. This pipeline does not change the Nix package or app sandbox.
+The signed repository is hosted on GitHub Pages. Publication is controlled by
+repository settings and protected environments, with deployment readback checks.
+This pipeline does not change the Nix package or app sandbox.
 
 ## Trust and publication model
 
@@ -94,7 +94,7 @@ import/signing step. PR and feature-branch builds never receive it or publish.
 ## Explicit local 0.10.16 bootstrap
 
 The local 0.10.16 bundle is excluded by default. With no eligible automated
-bundles, publication fails closed. To deliberately seed the experimental remote,
+bundles, publication fails closed. To deliberately seed the remote,
 set repository variable **`FLATPAK_PAGES_ALLOW_MANUAL_BOOTSTRAP=true`**.
 
 This exception accepts only the exact release and asset identities/digests pinned

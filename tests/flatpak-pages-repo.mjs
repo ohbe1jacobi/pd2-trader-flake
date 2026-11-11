@@ -111,6 +111,8 @@ test('real two-version signed archive repository and public descriptors', { skip
   assert.equal(channel.releases[0].provenance, 'reviewed-local-bootstrap');
   assert.match(await readFile(join(options.output, 'index.html'), 'utf8'), /reviewed-local-bootstrap/);
   assert.match(await readFile(join(options.output, 'index.html'), 'utf8'), /base checkout only/i);
+  assert.match(await readFile(join(options.output, 'index.html'), 'utf8'), /<p>Linux x86_64 repository\.<\/p>/);
+  assert.doesNotMatch(await readFile(join(options.output, 'index.html'), 'utf8'), /experimental/i);
   assert.equal(channel.latest, '0.10.10');
   assert.equal(channel.ref, appRef);
   assert.equal(channel.releases.length, 2);
