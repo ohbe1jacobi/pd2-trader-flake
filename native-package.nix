@@ -24,7 +24,7 @@
 }:
 let
   pname = "pd2-trader";
-  version = "0.11.0";
+  version = "0.11.1";
   src =
     if source != null then
       lib.cleanSourceWith {
@@ -43,12 +43,12 @@ let
         owner = "errolgr";
         repo = "pd2-trade";
         tag = "app-v${version}";
-        hash = "sha256-vhfFDK6FYwEU1lnq4DHgSUeoENfyGkelD93d7wfbYas=";
+        hash = "sha256-sv1NPllrXGoIKITKA2isB04GpVtqn3PdjJsrtbmo5Xs=";
       };
   frontend = buildNpmPackage {
     pname = "${pname}-frontend";
     inherit version src;
-    npmDepsHash = "sha256-8Jmh4o2LCEMXy3c05KflSOExPjlaZL9UYsyozkQn/tQ=";
+    npmDepsHash = "sha256-tobJScHfD+B35nTk9o9y8RJNQ/5KDmzzPPmvp2cBVN0=";
     npmFlags = [ "--ignore-scripts" ];
     env.HUSKY = "0";
     doCheck = true;
@@ -77,7 +77,7 @@ let
 in
 rustPlatform.buildRustPackage {
   inherit pname version src;
-  cargoHash = "sha256-/BPwWq0BKwjxiELKN6OU540hgtQr0b2DBYWkGxdBK0E=";
+  cargoHash = "sha256-L7+BOnQC3S+4ZQzSDEhBMUDVIfpHTSjnSPWm2W2/kzc=";
   cargoRoot = "src-tauri";
   buildAndTestSubdir = "src-tauri";
   cargoBuildFlags = [
