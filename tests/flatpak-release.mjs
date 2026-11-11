@@ -13,7 +13,7 @@ const expected = { schema: 1, version: '0.10.16', appId: 'io.github.ohbe1jacobi.
 const artifact = { id: 9, name: 'flatpak-12-2', expired: false, digest: `sha256:${'b'.repeat(64)}`,
   workflow_run: { id: 12, head_sha: commit, head_branch: 'main' } };
 const labels = {
-  [expected.bundle]: 'Flatpak — Linux x86_64 (experimental)',
+  [expected.bundle]: 'Flatpak — Linux x86_64',
   SHA256SUMS: 'Flatpak — SHA-256 checksums',
   'build-info.json': 'Flatpak — Build information',
 };
@@ -46,6 +46,17 @@ test('validate exact metadata, checksum and file set', async () => fixture(async
   await rm(join(dir, 'extra'));
   await writeFile(join(dir, expected.bundle), 'modified');
   await assert.rejects(validateFiles(dir, expected), /checksum/);
+}));
+test('nested local-build provenance compares by value without accepting changed source hashes', async () => fixture(async (dir, files) => {
+  const local = { ...expected, sourceFileSha256: { 'flake.nix': 'a'.repeat(64) }, limitations: ['local build; no CI'] };
+  files['build-info.json'] = Buffer.from(JSON.stringify(local));
+  files.SHA256SUMS = Buffer.from(Object.keys(files).filter(name => name !== 'SHA256SUMS').sort()
+    .map(name => `${digest(files[name])}  ${name}\n`).join(''));
+  await writeFile(join(dir, 'build-info.json'), files['build-info.json']);
+  await writeFile(join(dir, 'SHA256SUMS'), files.SHA256SUMS);
+  assert.equal((await validateFiles(dir, structuredClone(local))).length, 3);
+  await assert.rejects(validateFiles(dir, { ...local, sourceFileSha256: { 'flake.nix': 'b'.repeat(64) } }), /metadata/);
+  await assert.rejects(validateFiles(dir, { ...local, limitations: ['CI build'] }), /metadata/);
 }));
 test('download validates the artifact and rejects arbitrary archive paths', async () => fixture(async (_dir, files) => {
   const archive = Buffer.from('mock zip bytes');
@@ -101,7 +112,8 @@ test('never backfill a published release or hide an upload failure', async () =>
 test('repair only labels on byte-matching existing assets and make retries read-only', async () => fixture(async dir => {
   const files = await validateFiles(dir, expected);
   for (const draft of [true, false]) {
-    const stored = files.map((file, index) => ({ id: index + 1, name: file.name, label: index ? 'old label' : null,
+    const stored = files.map((file, index) => ({ id: index + 1, name: file.name,
+      label: file.name === expected.bundle ? 'Flatpak — Linux x86_64 (experimental)' : index ? 'old label' : null,
       size: file.size, state: 'uploaded', digest: `sha256:${file.sha256}` }));
     const writes = [];
     const request = async (path, options = {}) => {

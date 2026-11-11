@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Configuration](configuration.md) · [Troubleshooting](troubleshooting.md)
 
-This page covers Nix installations. To install the experimental bundle without
+This page covers Nix installations. To install Flatpak without
 Nix, follow the [Flatpak user guide](flatpak.md).
 
 ## Contents
