@@ -85,7 +85,7 @@ let
   };
   rulesScript = builtins.head custom.systemd.user.services.pd2-trader-kde-rules.Service.ExecStart;
 in
-assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == false;
+assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == null;
 assert legacy.programs.pd2-trader.settings == legacyValues;
 assert builtins.all (value: value == null) (
   builtins.attrValues legacyNull.programs.pd2-trader.settings
