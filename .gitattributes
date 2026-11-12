@@ -1,0 +1,2 @@
+# Exclude test harnesses from GitHub language statistics.
+tests/** linguist-detectable=false
