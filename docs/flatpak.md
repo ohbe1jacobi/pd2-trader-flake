@@ -1,5 +1,7 @@
 # Flatpak: user guide
 
+[README](../README.md) · [Repository installation](flatpak-pages.md) · [Flatpak packaging](flatpak-packaging.md)
+
 This is independent packaging of PD2 Trader, not an official upstream or
 Flathub release. You do not need Nix to install it. Automated packaging and
 release-asset uploads began with **0.11.0**.
@@ -8,6 +10,16 @@ Use the [signed repository installation guide](flatpak-pages.md) for installatio
 and updates through `flatpak update`. Downloadable release bundles are also
 available below. Use Flatpak, not the in-app updater, to update this installation.
 Never grant writes to `/app` or host-spawning permission to make the updater work.
+
+## Contents
+
+- [Requirements and limits](#requirements-and-limits)
+- [Obtain and install a bundle](#obtain-and-install-a-bundle)
+- [Set the game directory once](#set-the-game-directory-once)
+- [Saved settings and changing installations](#saved-settings-and-changing-installations)
+- [Install subsequent bundles](#install-subsequent-bundles)
+- [Legacy 0.10.16 updater warning](#legacy-01016-updater-warning)
+- [Sandbox and troubleshooting boundaries](#sandbox-and-troubleshooting-boundaries)
 
 ## Requirements and limits
 
@@ -178,4 +190,4 @@ the parent of `ProjectD2` and that the narrow log grant matches that exact
 installation. Quit before changing it. Do not broaden permissions to compensate
 for incorrect autodetection. Browser sign-in, tray visibility, MP3 playback,
 hotkeys and game-window integration still require testing on the target desktop;
-see the [maintainer acceptance checklist](../flatpak/README.md#runtime-acceptance).
+see the [maintainer acceptance checklist](flatpak-packaging.md#runtime-acceptance).

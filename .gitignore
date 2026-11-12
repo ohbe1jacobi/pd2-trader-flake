@@ -1,11 +1,10 @@
-# Local notes are private by default; keep the public entry-point documents.
+# Local notes are private by default; allow only named public documents.
 *.md
 !/README.md
-!/LICENSE.md
-!/CHANGELOG.md
 !/AGENTS.md
-!/CONTRIBUTING.md
-!/SECURITY.md
+!/.github/ACCESSIBILITY.md
+!/.github/CONTRIBUTING.md
+!/.github/SECURITY.md
 !/.github/CODE_OF_CONDUCT.md
 !/.github/pull_request_template.md
 !/docs/installation.md
@@ -14,8 +13,8 @@
 !/docs/configuration.md
 !/docs/troubleshooting.md
 !/docs/maintaining.md
-!/flatpak/README.md
-!/flatpak/publishing.md
+!/docs/flatpak-packaging.md
+!/docs/flatpak-publishing.md
 
 # Optional development checkout, historical packaging, and local diagnostics.
 /upstream/
