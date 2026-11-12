@@ -1,9 +1,21 @@
 # Flatpak packaging
 
+[README](../README.md) · [Flatpak user guide](flatpak.md) · [Publication runbook](flatpak-publishing.md)
+
 Conversion of the existing source-built Nix package using nix2flatpak. The
 normal package, upstream tests and default build stay unchanged. CI builds a
 candidate bundle; the existing release controller can attach verified assets.
 This is independent packaging, not an official upstream or Flathub release.
+
+## Contents
+
+- [Build](#build)
+- [CI runtime discovery](#ci-runtime-discovery)
+- [Test repository discovery without installing anything](#test-repository-discovery-without-installing-anything)
+- [Runtime acceptance](#runtime-acceptance)
+- [Application self-updates](#application-self-updates)
+- [Signed GitHub Pages publication](#signed-github-pages-publication)
+- [Verification scope](#verification-scope)
 
 ## Build
 
@@ -43,7 +55,7 @@ and `build-info.json`. The separate `result-flatpak-repo` is an HTTP-servable
 OSTree `archive-z2` repository with a summary and application ref. This extra
 export is needed because this converter revision discards its temporary repo.
 Neither local build output is signed. The
-[publication pipeline](publishing.md) signs and deploys the hosted repository
+[publication pipeline](flatpak-publishing.md) signs and deploys the hosted repository
 separately.
 
 ### CI runtime discovery
@@ -94,9 +106,9 @@ Neither probe launches the application.
 
 Installation, GNOME 51 runtime setup, persistent `PD2_TRADER_D2_DIR` configuration,
 the exact narrow `ProjectD2/pd2logs:create` grant, replacement bundles and cleanup
-are documented once in the [Flatpak user guide](../docs/flatpak.md). Follow that
+are documented once in the [Flatpak user guide](flatpak.md). Follow that
 guide when configuring a desktop installation. The
-[signed repository](../docs/flatpak-pages.md) provides application updates through
+[signed repository](flatpak-pages.md) provides application updates through
 Flatpak. Automated packaging and release-asset uploads began with 0.11.0.
 The earlier 0.10.16 bundle was built locally and manually attached to its release;
 its build information records that distinct provenance.
@@ -159,7 +171,7 @@ runner. It retains at most two versions through archive refs, enforces a measure
 site-size ceiling, and deploys one complete Pages artifact. Signing does not change
 the downloadable bundle or make its original build CI-produced.
 
-See the [maintainer publication runbook](publishing.md) for key isolation,
+See the [maintainer publication runbook](flatpak-publishing.md) for key isolation,
 environment protection, the explicit checksum-pinned local 0.10.16 bootstrap,
 remote installation, retention, rollback, and deployment verification. Publication
 requires the documented repository settings and protected environments.

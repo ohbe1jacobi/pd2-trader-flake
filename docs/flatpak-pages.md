@@ -1,5 +1,7 @@
 # Install from the Flatpak repository
 
+[README](../README.md) · [Flatpak user guide](flatpak.md)
+
 Install PD2 Trader from the signed GitHub Pages repository for application
 updates through Flatpak. Alternatively, use the
 [downloadable bundle instructions](flatpak.md#obtain-and-install-a-bundle).

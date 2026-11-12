@@ -1,10 +1,10 @@
 # Contributing
 
-[README](README.md) · [Maintainer guide](docs/maintaining.md)
+[README](../README.md) · [Maintainer guide](../docs/maintaining.md) · [Accessibility](ACCESSIBILITY.md)
 
-This repository packages PD2 Trader; application development happens [upstream](https://github.com/errolgr/pd2-trade). Branch packaging, module, and documentation changes from `develop` and open reviewed PRs back into `develop`. Routine upstream version updates follow the separate [maintainer workflow](docs/maintaining.md#update-the-pinned-release).
+This repository packages PD2 Trader; application development happens [upstream](https://github.com/errolgr/pd2-trade). Branch packaging, module, and documentation changes from `develop` and open reviewed PRs back into `develop`. Routine upstream version updates follow the separate [maintainer workflow](../docs/maintaining.md#update-the-pinned-release).
 
-See [AGENTS.md](AGENTS.md) for repository conventions, nixpkgs packaging guidelines, and the full verification command list.
+See [AGENTS.md](../AGENTS.md) for repository conventions, nixpkgs packaging guidelines, and the full verification command list.
 
 ## Build or run from a checkout
 
@@ -78,11 +78,27 @@ package = inputs.pd2-trader.packages.x86_64-linux.default.override {
 
 This path intentionally imports **application source**, not game data. Both frontend and Rust builds use it. For dependency-lock changes, refresh the relevant npm/Cargo hashes.
 
-For version updates, release/cache automation, permissions, and recovery, see the [maintainer guide](docs/maintaining.md).
+For version updates, release/cache automation, permissions, and recovery, see the [maintainer guide](../docs/maintaining.md).
 
 ## Checks
 
-The separate `.github/workflows/codeql.yml` uses CodeQL advanced setup to scan this repository's GitHub Actions, JavaScript/TypeScript, and Python on pushes and PRs targeting `main`/`develop`, weekly on the default branch (Tuesday at 07:23 UTC), and manual dispatch. It uses SHA-pinned actions and the built-in token with job-scoped `security-events: write`; it does not build PD2 Trader, fetch upstream application sources, or execute repository scripts. It does not analyze Nix, shell, the C probes, or upstream Rust/frontend code, and does not replace the existing linters or application tests. Keep CodeQL **default setup disabled** in GitHub settings when using this workflow; default setup rejects advanced CodeQL uploads. Local hooks and `checks.x86_64-linux.codeql` validate workflow contracts; actual scanning and alert ingestion require a GitHub Actions run. No additional secrets or labeled runners are needed.
+### CodeQL security scanning
+
+The separate `.github/workflows/codeql.yml` uses CodeQL advanced setup to scan this repository's GitHub Actions, JavaScript/TypeScript, and Python:
+
+- On pushes and PRs targeting `main`/`develop`.
+- Weekly on the default branch (Tuesday at 07:23 UTC).
+- By manual dispatch.
+
+It uses SHA-pinned actions and the built-in token with job-scoped `security-events: write`. No additional secrets or labeled runners are needed.
+
+**Scope:** CodeQL does not build PD2 Trader, fetch upstream application sources, or execute repository scripts. It does not analyze Nix, shell, the C probes, or upstream Rust/frontend code, and does not replace the existing linters or application tests.
+
+**Configuration:** keep CodeQL **default setup disabled** in GitHub settings when using this workflow; default setup rejects advanced CodeQL uploads.
+
+**Verification:** local hooks and `checks.x86_64-linux.codeql` validate workflow contracts. Actual scanning and alert ingestion require a GitHub Actions run.
+
+### Application builds and integration checks
 
 GitHub Actions runs `.github/workflows/ci.yml` for pushes to `main`/`develop`, PRs, and manual dispatches; feature pushes and tag pushes do not independently compile. Generated bot PR events mirror authoritative exact-head dispatches. Ubuntu x86_64 CI uses the committed lock, shared pre-commit checks, frontend Vitest/native Cargo builds, all flake contracts, and the development-shell test. Graphical startup runs inside a Nix sandbox through `checks.x86_64-linux.cache-smoke`. Builds are serial; no desktop activation or profile installation occurs. Nix may substitute previously checked outputs; that is not a fresh unit-test run. Locally, full checks are manual-only, never a pre-push compilation requirement.
 
@@ -117,4 +133,4 @@ This uses a separate Xvfb display, private D-Bus, and temporary HOME/config/cach
 
 ## Repository hygiene
 
-`.gitignore` excludes local notes (Markdown except the explicitly allowed public root documents and `docs/` guides), optional upstream checkouts, historical packaging/diagnostics, build outputs, logs, mutable application state, and common secret/editor files. Those local directories are not required by any exported package, module, or check. Keep `AGENTS.md`, `flake.lock`, all root/module Nix files, Python helpers, and test sources tracked. Review the staged file list before committing or pushing; ignore rules are not a substitute for reviewing files already tracked or force-added.
+`.gitignore` excludes local notes (Markdown except the explicitly allowed root documents, `.github/` community files, and `docs/` guides), optional upstream checkouts, historical packaging/diagnostics, build outputs, logs, mutable application state, and common secret/editor files. Those local directories are not required by any exported package, module, or check. Keep `AGENTS.md`, `flake.lock`, all root/module Nix files, Python helpers, and test sources tracked. Review the staged file list before committing or pushing; ignore rules are not a substitute for reviewing files already tracked or force-added.

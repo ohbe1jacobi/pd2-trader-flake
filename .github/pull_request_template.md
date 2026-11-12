@@ -18,5 +18,5 @@ For documentation/template-only changes, say so; an application rebuild is not e
 - [ ] Relevant documentation and tests are updated, or not applicable.
 - [ ] The diff contains no credentials, saved settings/login data, game files, or private notes.
 
-<!-- See CONTRIBUTING.md and AGENTS.md for repository conventions and checks.
+<!-- See .github/CONTRIBUTING.md and AGENTS.md for repository conventions and checks.
 Use a Conventional Commit-style PR title, for example: chore(github): add issue and PR templates. -->
