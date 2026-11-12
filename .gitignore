@@ -7,6 +7,7 @@
 !/CONTRIBUTING.md
 !/SECURITY.md
 !/.github/CODE_OF_CONDUCT.md
+!/.github/pull_request_template.md
 !/docs/installation.md
 !/docs/flatpak.md
 !/docs/flatpak-pages.md

@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a packaging, installation, module, Flatpak, or automation problem.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository provides unofficial Nix packaging and Flatpak distribution for PD2 Trader.
+        Application development happens upstream in errolgr/pd2-trade. If you are unsure where a bug belongs, report it here and we can help route it.
+        Please search existing issues first. Never attach tokens, saved login data, complete settings files, or unredacted personal information.
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - NixOS module
+        - Home Manager module
+        - Nix run or profile installation
+        - Nix source build or development shell
+        - Flatpak
+        - Other or not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: Include the PD2 Trader version, distro, desktop, and X11 or Wayland session. For Nix, include the flake revision if known; for Flatpak, include the installation source. For build or CI problems, describe the build environment instead. Unknown details are fine.
+      placeholder: |
+        PD2 Trader version:
+        Flake revision or Flatpak source:
+        Distribution and version:
+        Desktop and session (X11/Wayland):
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reproducible example. Include the launch or build command and relevant redacted module configuration when applicable.
+      placeholder: |
+        1. Install or configure using ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: What should happen, and what happens instead? Include the exact error message if available.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant logs or screenshots
+      description: Optional. Include only the relevant excerpt, with credentials and personal information removed. Do not upload saved login data or complete settings files.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context or workarounds
+      description: Optional. Note when it last worked, workarounds tried, or whether the same problem occurs with another upstream package.
