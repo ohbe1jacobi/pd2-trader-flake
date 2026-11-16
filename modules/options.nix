@@ -25,12 +25,13 @@
   settings = {
     autoUpdateEnabled = lib.mkOption {
       type = lib.types.nullOr lib.types.bool;
-      default = false;
+      default = null;
       description = ''
         Merge autoUpdateEnabled into the mutable Trader settings before each launch.
-        Defaults to false so Nix manages application updates. Update notifications
-        and manual update actions remain available. Null leaves the saved GUI
-        preference unmanaged without erasing it. No upstream source patch is used.
+        Null (the default) leaves the saved GUI preference unmanaged without
+        erasing it. Explicit true or false values are reapplied at each launch.
+        Use an upstream version with read-only installation detection to prevent
+        self-updates of Nix-managed executables. No upstream source patch is used.
       '';
     };
     telemetryOptOut = lib.mkOption {

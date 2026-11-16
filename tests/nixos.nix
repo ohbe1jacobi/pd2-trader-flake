@@ -120,7 +120,7 @@ assert assertionsPass manual;
 assert assertionsPass defaults;
 # The per-user interface was removed in favor of system-wide settings.
 assert !(assertionsPass removed);
-assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == false;
+assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == null;
 assert manual.programs.pd2-trader.settings.autoUpdateEnabled;
 assert !defaults.programs.pd2-trader.kde.PD2StartWindowed;
 assert !defaults.programs.pd2-trader.kde.traderoverlay;
