@@ -1,7 +1,9 @@
 # Maintainer runbook: signed Flatpak publication
 
+[README](../README.md) · [Maintainer guide](maintaining.md) · [Flatpak packaging](flatpak-packaging.md)
+
 **Audience: repository maintainers.** User installation and update instructions
-belong in the [repository user guide](../docs/flatpak-pages.md), not this runbook.
+belong in the [repository user guide](flatpak-pages.md), not this runbook.
 These procedures configure the publisher; installing Trader requires none of
 these GitHub settings or private keys.
 

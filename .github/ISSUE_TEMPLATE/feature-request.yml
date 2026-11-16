@@ -1,0 +1,46 @@
+name: Feature or improvement request
+description: Suggest an improvement to packaging, modules, Flatpak, documentation, or automation.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository handles PD2 Trader packaging and distribution, not upstream application development.
+        Application feature requests generally belong in errolgr/pd2-trade. If you are unsure, ask here.
+        Please search existing issues first and keep credentials and personal information out of examples.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Nix packaging or runtime
+        - NixOS or Home Manager modules
+        - Flatpak distribution
+        - Documentation
+        - CI or release automation
+        - Other or unsure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the use case and what is difficult or missing today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested improvement
+      description: Describe the desired behavior. A fully worked-out implementation is not required.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Optional. What have you tried or considered?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Optional. Include relevant examples, environment details, or related issues.

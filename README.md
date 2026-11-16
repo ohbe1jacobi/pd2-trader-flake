@@ -1,6 +1,6 @@
 # PD2 Trader for Nix
 
-Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade), the trading companion for Project Diablo 2. Builds the pinned upstream **0.11.1** release from TypeScript/React and Rust source, rather than wrapping an AppImage.
+Unofficial Nix packaging for [PD2 Trader](https://github.com/errolgr/pd2-trade), the trading companion for Project Diablo 2. Builds the pinned upstream **0.11.6** release from TypeScript/React and Rust source, rather than wrapping an AppImage.
 
 Includes Home Manager and standalone NixOS modules for graphical-login startup, a configurable Diablo II directory, and KDE window-rule workarounds.
 
@@ -92,8 +92,11 @@ See the [installation guide](docs/installation.md) for removal and profile-insta
 - [Flatpak](docs/flatpak.md): signed repository installation and updates, release bundles, and game-directory access.
 - [Configuration](docs/configuration.md): module options, game-directory handling, automatic updates, and KDE rules.
 - [Troubleshooting](docs/troubleshooting.md): service logs, desktop/graphics caveats, and build resource limits.
-- [Contributing](CONTRIBUTING.md): development shell, package structure, hooks, and checks.
+- [Contributing](.github/CONTRIBUTING.md): development shell, package structure, hooks, and checks.
 - [Maintainer guide](docs/maintaining.md): version updates, release/cache automation, permissions, and recovery.
+- [Flatpak packaging](docs/flatpak-packaging.md) and [publication runbook](docs/flatpak-publishing.md): building, testing, and publishing the Flatpak.
+- [Accessibility](.github/ACCESSIBILITY.md): documentation and packaging scope, upstream limitations, and reporting barriers.
+- [Security policy](.github/SECURITY.md): supported versions and vulnerability reporting.
 
 ## Flatpak
 

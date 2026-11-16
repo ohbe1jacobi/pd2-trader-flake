@@ -45,7 +45,7 @@ programs.pd2-trader.package =
   };
 ```
 
-If you build the package with your own `pkgs`, apply the same `.override` to that package. It can be combined with the [`source` override](../CONTRIBUTING.md#use-a-separate-upstream-source-checkout).
+If you build the package with your own `pkgs`, apply the same `.override` to that package. It can be combined with the [`source` override](../.github/CONTRIBUTING.md#use-a-separate-upstream-source-checkout).
 
 ### Limit cores per build and simultaneous builds
 
