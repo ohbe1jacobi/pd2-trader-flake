@@ -19,6 +19,22 @@ let
     inherit (pkgs) lib;
     inherit pkgs cfg;
   };
+  defaults = import ../modules/runtime.nix {
+    inherit (pkgs) lib;
+    inherit pkgs;
+    cfg =
+      (pkgs.lib.evalModules {
+        modules = [
+          {
+            options = import ../modules/options.nix {
+              inherit (pkgs) lib;
+              inherit pkgs;
+              defaultPackage = fake;
+            };
+          }
+        ];
+      }).config;
+  };
   unmanaged = import ../modules/runtime.nix {
     inherit (pkgs) lib;
     inherit pkgs;
@@ -75,6 +91,12 @@ pkgs.runCommand "pd2-trader-runtime-contract" { nativeBuildInputs = [ pkgs.pytho
   export HOME="$TMPDIR/home"
   export XDG_CONFIG_HOME="$HOME/custom config"
   mkdir -p "$XDG_CONFIG_HOME/com.pd2-trader.app"
+  # Default module launches preserve absent, disabled, and enabled GUI preferences.
+  for preference in absent false true; do
+    python -c 'import json,os,pathlib,sys; s={"unrelated":{"keep":True}}; v=sys.argv[1]; s.update({"autoUpdateEnabled":v == "true"} if v != "absent" else {}); (pathlib.Path(os.environ["XDG_CONFIG_HOME"])/"com.pd2-trader.app/settings.json").write_text(json.dumps(s))' "$preference"
+    ${defaults.package}/bin/pd2-trader
+    python -c 'import json,os,pathlib,sys; p=pathlib.Path(os.environ["HOME"]); s=json.loads((p/"observed.json").read_text()); v=sys.argv[1]; assert ("autoUpdateEnabled" not in s) if v == "absent" else s["autoUpdateEnabled"] is (v == "true"); assert s["unrelated"] == {"keep":True}; assert s["diablo2Directory"] == str(p/"Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II")' "$preference"
+  done
   printf '%s\n' '{"pd2Token":"fixture-token","unrelated":{"keep":true}}' > "$XDG_CONFIG_HOME/com.pd2-trader.app/settings.json"
   ${runtime.package}/bin/pd2-trader 'argument with spaces' --example
   python -c 'import json,os,pathlib; p=pathlib.Path(os.environ["HOME"]); s=json.loads((p/"observed.json").read_text()); assert s == {"pd2Token":"fixture-token","unrelated":{"keep":True},"diablo2Directory":"/home/test/Games/Program Files (x86)/Diablo II","autoUpdateEnabled":False}; assert (p/"arguments").read_text() == "argument with spaces\n--example\n"'
