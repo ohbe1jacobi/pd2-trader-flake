@@ -14,6 +14,7 @@ let
     };
     kde.PD2StartWindowed = false;
     kde.traderoverlay = false;
+    kde.traderAcceptFocus = false;
   };
   runtime = import ../modules/runtime.nix {
     inherit (pkgs) lib;

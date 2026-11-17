@@ -78,3 +78,38 @@ with tempfile.TemporaryDirectory() as tmp:
                               '--game-title', ''], capture_output=True, text=True)
     assert refused.returncode != 0 and config.read_bytes() == before
     print('PASS: overlay layer, independent toggles, cleanup, legacy rules, disabled no-op, symlink safety')
+    config.write_text(original)
+    result = run(False, False, ['--accept-focus', 'true', '--trader-title', 'Custom Trader'])
+    focus = result['pd2-trader-hm-accept-focus']
+    assert focus['Enabled'] == 'true'
+    assert focus['title'] == 'Custom Trader' and focus['titlematch'] == '1'
+    assert focus['acceptfocus'] == 'true' and focus['acceptfocusrule'] == '2'
+    assert not any(key in focus for key in ['layer', 'type', 'skiptaskbar', 'skipswitcher'])
+    assert result['General']['rules'].split(',') == ['pd2-trader-hm-accept-focus', 'existing']
+    assert dict(result['existing']) == {'Description': 'Leave me alone', 'title': 'Other App', 'titlematch': '1'}
+    first = config.read_bytes()
+    run(False, False, ['--accept-focus', 'true', '--trader-title', 'Custom Trader'])
+    assert config.read_bytes() == first, 'Focus rule must be idempotent'
+    result = run(True, True, ['--accept-focus', 'true'])
+    assert result['General']['rules'].split(',') == [
+        'pd2-trader-hm-windowed', 'pd2-trader-hm-overlay', 'pd2-trader-hm-accept-focus', 'existing']
+    assert result['General']['count'] == '4'
+    result = run(True, True, ['--accept-focus', 'false'])
+    assert result['pd2-trader-hm-accept-focus']['Enabled'] == 'false'
+    assert result['pd2-trader-hm-accept-focus']['acceptfocusrule'] == '0'
+    assert result['General']['rules'].split(',') == ['pd2-trader-hm-windowed', 'pd2-trader-hm-overlay', 'existing']
+    assert result['pd2-trader-hm-overlay']['layerrule'] == '2'
+    run(False, False, ['--accept-focus', 'true'])
+    result = run(False, False)
+    assert result['General']['rules'] == 'existing'
+    assert result['pd2-trader-hm-accept-focus']['acceptfocusrule'] == '0'
+    config.unlink()
+    run(False, False, ['--accept-focus', 'false'])
+    assert not config.exists(), 'Disabled focus workaround must not create kwinrulesrc'
+    config.symlink_to(target)
+    refused = subprocess.run([sys.executable, helper, '--config', str(config), '--kread', kread,
+                              '--kwrite', kwrite, '--windowed', 'false', '--overlay', 'false',
+                              '--accept-focus', 'true'], capture_output=True, text=True)
+    assert refused.returncode != 0 and 'symlink' in refused.stderr
+    assert target.read_text() == original
+    print('PASS: independent Force Yes focus rule, custom title, idempotence, combined rules, cleanup, symlink safety')

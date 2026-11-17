@@ -5,6 +5,7 @@ import subprocess
 
 WINDOWED = 'pd2-trader-hm-windowed'
 OVERLAY = 'pd2-trader-hm-overlay'
+ACCEPT_FOCUS = 'pd2-trader-hm-accept-focus'
 
 
 def main():
@@ -14,6 +15,7 @@ def main():
     parser.add_argument('--kwrite', required=True)
     parser.add_argument('--windowed', required=True, choices=['true', 'false'])
     parser.add_argument('--overlay', required=True, choices=['true', 'false'])
+    parser.add_argument('--accept-focus', default='false', choices=['true', 'false'])
     parser.add_argument('--game-title', default='Diablo II')
     parser.add_argument('--game-class', default='steam_app_default')
     parser.add_argument('--trader-title', default='PD2Trader')
@@ -32,12 +34,13 @@ def main():
 
     # Do not create a config just because a disabled module was imported.
     active = args.windowed == 'true'
+    accept_focus = args.accept_focus == 'true'
     rules = read('General', 'rules').split(',')
     rules = [rule for rule in rules if rule]
     if not rules:
         rules = [str(i) for i in range(1, int(read('General', 'count', '0')) + 1)]
-    if not active and args.overlay == 'false' and not any(
-            rule in rules for rule in [WINDOWED, OVERLAY]):
+    if not active and args.overlay == 'false' and not accept_focus and not any(
+            rule in rules for rule in [WINDOWED, OVERLAY, ACCEPT_FOCUS]):
         return
     if config.is_symlink():
         raise SystemExit('Refusing to edit symlinked kwinrulesrc; integrate these rules with its existing declarative owner instead.')
@@ -68,8 +71,18 @@ def main():
         write(OVERLAY, 'Enabled', 'false')
         for key in ['layerrule', 'skiptaskbarrule', 'skipswitcherrule']:
             write(OVERLAY, key, '0')
-    preserved = [rule for rule in rules if rule not in [WINDOWED, OVERLAY]]
-    desired = ([WINDOWED] if active else []) + ([OVERLAY] if overlay else []) + preserved
+    if accept_focus:
+        values = {'Description': 'PD2 Trader: accept keyboard focus',
+                  'Enabled': 'true', 'title': args.trader_title, 'titlematch': '1',
+                  'acceptfocus': 'true', 'acceptfocusrule': '2'}
+        for key, value in values.items():
+            write(ACCEPT_FOCUS, key, value)
+    elif ACCEPT_FOCUS in rules:
+        write(ACCEPT_FOCUS, 'Enabled', 'false')
+        write(ACCEPT_FOCUS, 'acceptfocusrule', '0')
+    preserved = [rule for rule in rules if rule not in [WINDOWED, OVERLAY, ACCEPT_FOCUS]]
+    desired = (([WINDOWED] if active else []) + ([OVERLAY] if overlay else [])
+               + ([ACCEPT_FOCUS] if accept_focus else []) + preserved)
     write('General', 'rules', ','.join(desired))
     write('General', 'count', len(desired))
 

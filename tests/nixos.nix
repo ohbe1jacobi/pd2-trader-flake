@@ -46,6 +46,7 @@ let
     };
     kde.PD2StartWindowed = true;
     kde.traderoverlay = true;
+    kde.traderAcceptFocus = true;
   };
   manual = evaluate {
     enable = true;
@@ -85,6 +86,12 @@ let
   rules = enabled.systemd.user.services.pd2-trader-kde-rules;
   assertionsPass = c: builtins.all (a: a.assertion) c.assertions;
   rendered = name: enabled.systemd.user.units.${name}.unit;
+  focusOnly = evaluate {
+    enable = true;
+    autostart = false;
+    kde.traderAcceptFocus = true;
+  };
+  disabledFocus = evaluate { kde.traderAcceptFocus = true; };
 in
 assert assertionsPass disabled;
 assert legacy.programs.pd2-trader.settings == legacyValues;
@@ -124,6 +131,10 @@ assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == null;
 assert manual.programs.pd2-trader.settings.autoUpdateEnabled;
 assert !defaults.programs.pd2-trader.kde.PD2StartWindowed;
 assert !defaults.programs.pd2-trader.kde.traderoverlay;
+assert !defaults.programs.pd2-trader.kde.traderAcceptFocus;
+assert enabled.programs.pd2-trader.kde.traderAcceptFocus;
+assert !(focusOnly.systemd.user.services ? pd2-trader);
+assert !(disabledFocus.systemd.user.services ? pd2-trader-kde-rules);
 assert
   defaults.programs.pd2-trader.settings.diablo2Directory
   == "~/Games/project-diablo-2/drive_c/Program Files (x86)/Diablo II";
@@ -181,5 +192,10 @@ pkgs.runCommand "pd2-trader-nixos-contract" { } ''
   grep -F -- '--telemetry-opt-out true' ${configured.package}/bin/pd2-trader
   grep -F -- '--windowed true' ${configured.applyRules}
   grep -F -- '--overlay true' ${configured.applyRules}
+  grep -F -- '--accept-focus true' ${configured.applyRules}
+  grep -F -- '--accept-focus true' ${focusOnly.systemd.user.services.pd2-trader-kde-rules.serviceConfig.ExecStart}
+  grep -F -- '--windowed false' ${focusOnly.systemd.user.services.pd2-trader-kde-rules.serviceConfig.ExecStart}
+  grep -F -- '--overlay false' ${focusOnly.systemd.user.services.pd2-trader-kde-rules.serviceConfig.ExecStart}
+  grep -F -- '--accept-focus false' ${defaults.systemd.user.services.pd2-trader-kde-rules.serviceConfig.ExecStart}
   touch "$out"
 ''

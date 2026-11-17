@@ -63,6 +63,7 @@ in
       --kwrite ${pkgs.kdePackages.kconfig}/bin/kwriteconfig6 \
       --windowed ${bool (cfg.enable && cfg.kde.PD2StartWindowed)} \
       --overlay ${bool (cfg.enable && cfg.kde.traderoverlay)} \
+      --accept-focus ${bool (cfg.enable && cfg.kde.traderAcceptFocus)} \
       --game-title ${lib.escapeShellArg (cfg.kde.gameWindowTitle or "Diablo II")} \
       --game-class ${lib.escapeShellArg (cfg.kde.gameWindowClass or "steam_app_default")} \
       --trader-title ${lib.escapeShellArg (cfg.kde.traderWindowTitle or "PD2Trader")}

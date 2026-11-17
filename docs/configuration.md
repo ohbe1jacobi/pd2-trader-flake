@@ -34,6 +34,7 @@ Application preferences live under `settings`. Existing top-level `autoUpdateEna
 | `package` | This flake's locked package for exported modules; consumer-built package for direct module-file imports | Override the Trader package. |
 | `kde.PD2StartWindowed` | `false` | Start the matched game without fullscreen or either maximization axis, using **Apply Initially**. Later manual fullscreen toggles remain possible. |
 | `kde.traderoverlay` | `false` | Force the matched Trader window to **Layer = On-screen display**, skipping the taskbar and window switcher. Does not change the window type. |
+| `kde.traderAcceptFocus` | `false` | Force **Accept focus = Yes** for the matched Trader window to work around text fields not receiving keyboard input on KDE. Independent of stacking; verify game focus and click-through after enabling. |
 | `kde.gameWindowTitle` | `Diablo II` | Exact game title to match. |
 | `kde.gameWindowClass` | `steam_app_default` | Exact Wine/X11 game class; override for a different Wine runner. |
 | `kde.traderWindowTitle` | `PD2Trader` | Exact Trader window title to match. |
@@ -53,6 +54,7 @@ Example inside `programs.pd2-trader` in either module:
   # KDE Plasma workarounds are opt-in; no desktop autodetection is performed.
   kde.PD2StartWindowed = true;
   kde.traderoverlay = true;
+  kde.traderAcceptFocus = true;
   kde.gameWindowClass = "custom-wine-class";
 }
 ```
@@ -104,9 +106,11 @@ This reuses the automatic-update settings merger and works even when `d2dir` and
 
 The helper uses KDE's `kreadconfig6`/`kwriteconfig6` tools to merge stable, module-owned groups into `kwinrulesrc`. It preserves unrelated rules and their order, and applies the rules before Trader starts. When available, it requests a KWin reconfigure on the session bus. It refuses to edit a symlinked configuration already owned by another declarative system, such as plasma-manager; integrate the equivalent rules with that owner instead.
 
-No Wine, Lutris, D2GL, resolution, or cursor settings are modified. Window rules address startup desktop state and stacking, not every cursor-capture, click-through, Gamescope, or overlay-input issue. The game is not autostarted. Disable old manually created duplicate rules yourself; the module never deletes them. Close the Window Rules editor while applying changes so it does not overwrite the new state with an old snapshot.
+No Wine, Lutris, D2GL, resolution, or cursor settings are modified. Window rules address startup desktop state, stacking, and optional focus acceptance, not every cursor-capture, click-through, Gamescope, or overlay-input issue. The game is not autostarted. Disable old manually created duplicate rules yourself; the module never deletes them. Close the Window Rules editor while applying changes so it does not overwrite the new state with an old snapshot.
+
+`kde.traderAcceptFocus = true` adds a separate exact-title rule equivalent to **Accept focus → Force → Yes** in KDE's Window Rules editor. This restored text input in local KDE Wayland/XWayland testing; it is a workaround, not an upstream application fix. It does not enable the overlay stacking rule or change focus-stealing prevention. Because it overrides the application's focus acceptance hint, check that typing works, the game regains keyboard focus, and non-interactive overlay areas retain their intended click-through behavior. Turning the option off retires only this module-owned focus rule; it does not force focus rejection or remove manually created rules.
 
 - **Home Manager:** turn a flag off and switch to retire that owned rule. To remove all integration, set `enable = false` and switch once while the module remains imported; then remove the import.
-- **NixOS:** KDE changes apply at the next graphical login, or when the user restarts the rules service. Before disabling or removing the module, set both `kde` flags to `false` and rebuild while keeping `enable = true`. Then let the helper run once for each affected user (log in again or restart the rules service). Disabling the module removes the helper, so it can no longer clean up. Root activation deliberately does not modify home directories.
+- **NixOS:** KDE changes apply at the next graphical login, or when the user restarts the rules service. Before disabling or removing the module, set all three flags (`kde.PD2StartWindowed`, `kde.traderoverlay`, and `kde.traderAcceptFocus`) to `false` and rebuild while keeping `enable = true`. Then let the helper run once for each affected user (log in again or restart the rules service). Disabling the module removes the helper, so it can no longer clean up. Root activation deliberately does not modify home directories.
 
 For immediate service startup and log commands after switching your configuration, see [Session services and logs](troubleshooting.md#session-services-and-logs).
