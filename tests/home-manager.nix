@@ -45,6 +45,7 @@ let
     };
     kde.PD2StartWindowed = true;
     kde.traderoverlay = true;
+    kde.traderAcceptFocus = true;
   };
   manual = evaluate {
     enable = true;
@@ -84,6 +85,18 @@ let
     kde.traderWindowTitle = "Custom Trader";
   };
   rulesScript = builtins.head custom.systemd.user.services.pd2-trader-kde-rules.Service.ExecStart;
+  focusOnly = evaluate {
+    enable = true;
+    autostart = false;
+    kde.traderAcceptFocus = true;
+  };
+  focusScript = builtins.head focusOnly.systemd.user.services.pd2-trader-kde-rules.Service.ExecStart;
+  disabledFocus = evaluate { kde.traderAcceptFocus = true; };
+  disabledFocusRuntime = import ../modules/runtime.nix {
+    inherit pkgs;
+    inherit (pkgs) lib;
+    cfg = disabledFocus.programs.pd2-trader;
+  };
 in
 assert defaults.programs.pd2-trader.settings.autoUpdateEnabled == null;
 assert legacy.programs.pd2-trader.settings == legacyValues;
@@ -119,6 +132,10 @@ assert manual.programs.pd2-trader.settings.autoUpdateEnabled;
 assert enabled.programs.pd2-trader.settings.autoUpdateEnabled == null;
 assert !defaults.programs.pd2-trader.kde.PD2StartWindowed;
 assert !defaults.programs.pd2-trader.kde.traderoverlay;
+assert !defaults.programs.pd2-trader.kde.traderAcceptFocus;
+assert enabled.programs.pd2-trader.kde.traderAcceptFocus;
+assert !(focusOnly.systemd.user.services ? pd2-trader);
+assert !(disabledFocus.systemd.user.services ? pd2-trader-kde-rules);
 assert enabled.programs.pd2-trader.kde.PD2StartWindowed;
 assert enabled.programs.pd2-trader.kde.traderoverlay;
 assert
@@ -159,5 +176,11 @@ pkgs.runCommand "pd2-trader-home-manager-contract" { } ''
   grep -F -- "--game-title 'Custom Diablo II'" ${rulesScript}
   grep -F -- '--game-class custom-wine-class' ${rulesScript}
   grep -F -- "--trader-title 'Custom Trader'" ${rulesScript}
+  grep -F -- '--accept-focus false' ${rulesScript}
+  grep -F -- '--accept-focus true' ${builtins.head enabled.systemd.user.services.pd2-trader-kde-rules.Service.ExecStart}
+  grep -F -- '--accept-focus true' ${focusScript}
+  grep -F -- '--windowed false' ${focusScript}
+  grep -F -- '--overlay false' ${focusScript}
+  grep -F -- '--accept-focus false' ${disabledFocusRuntime.applyRules}
   touch "$out"
 ''

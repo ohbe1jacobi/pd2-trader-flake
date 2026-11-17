@@ -82,6 +82,16 @@
         Opt-in for KDE Plasma; no desktop autodetection is performed.
       '';
     };
+    traderAcceptFocus = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Force Accept focus to Yes for the exact Trader window title, independently
+        of the overlay stacking rule. Opt-in KDE Plasma workaround for text fields
+        that do not receive keyboard input. Overrides the application's focus
+        acceptance hint; verify game focus and click-through after enabling.
+      '';
+    };
     gameWindowTitle = lib.mkOption {
       type = lib.types.addCheck lib.types.str (value: value != "");
       default = "Diablo II";
@@ -95,7 +105,7 @@
     traderWindowTitle = lib.mkOption {
       type = lib.types.addCheck lib.types.str (value: value != "");
       default = "PD2Trader";
-      description = "Exact Trader overlay window title to match for the stacking rule.";
+      description = "Exact Trader window title to match for the stacking and accept-focus rules.";
     };
   };
 }
